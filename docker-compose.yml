@@ -1,0 +1,35 @@
+# 로컬 개발용 인프라. API 서버와 워커는 Phase 7에서 컨테이너로 추가한다.
+# 다른 로컬 프로젝트와 겹치지 않도록 호스트 포트를 +10 옮겨 둠 (5442 / 6389 / 5682 / 15682)
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: codemap
+      POSTGRES_USER: codemap
+      POSTGRES_PASSWORD: codemap
+    ports:
+      - "5442:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codemap"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6389:6379"
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: codemap
+      RABBITMQ_DEFAULT_PASS: codemap
+    ports:
+      - "5682:5672"
+      - "15682:15672"   # 관리 콘솔 http://localhost:15682
+
+volumes:
+  pgdata:
