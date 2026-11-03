@@ -1,5 +1,8 @@
 # 공통
 .env
+
+# 개인 참고 문서
+docs/CONCEPT.md
 .idea/
 .vscode/
 *.log
