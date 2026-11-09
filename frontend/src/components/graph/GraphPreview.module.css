@@ -1,0 +1,41 @@
+.svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.structure {
+  stroke: var(--color-map-structure);
+  stroke-width: 0.9;
+}
+
+.semantic {
+  fill: none;
+  stroke: var(--color-map-semantic);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+
+.history {
+  fill: none;
+  stroke: var(--color-map-history);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.node {
+  fill: var(--color-map-structure);
+}
+
+.hubRing {
+  fill: var(--color-bg-canvas);
+  stroke: var(--color-map-structure);
+  stroke-width: 1.4;
+}
+
+.focusRing {
+  fill: none;
+  stroke: var(--color-text-primary);
+  stroke-width: 1.6;
+}
