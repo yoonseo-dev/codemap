@@ -61,6 +61,11 @@ const RECENT = [
 ]
 for (const r of RECENT) jobs.set(r.jobId, { job: doneJob(r.jobId, r.repo), failAt: null, listeners: new Set() })
 
+/** hybrid 모드: 실제 백엔드가 만든 작업 ID로도 mock 엔드포인트(어긋남·검색 등)가 동작하게 끝난 작업으로 등록한다 */
+export function adoptJob(jobId: string) {
+  if (!jobs.has(jobId)) jobs.set(jobId, { job: doneJob(jobId, repoOf('hybrid', 'mock')), failAt: null, listeners: new Set() })
+}
+
 function record(jobId: string): JobRecord {
   const rec = jobs.get(jobId)
   if (!rec) throw new ApiRequestError(404, 'JOB_NOT_FOUND', '분석 작업을 찾지 못했어요')
@@ -156,7 +161,7 @@ export const mockApi: CodemapApi = {
   async retryJob(jobId) {
     await latency()
     const rec = record(jobId)
-    if (!rec.job.failure?.resumable) throw new ApiRequestError(409, 'JOB_NOT_READY', '다시 시도할 수 없는 작업이에요')
+    if (!rec.job.failure?.resumable) throw new ApiRequestError(409, 'NOT_RESUMABLE', '다시 시도할 수 없는 작업이에요')
     rec.failAt = null
     rec.job.failure = null
     for (const s of rec.job.stages) if (s.status === 'FAILED' || s.status === 'CANCELLED') s.status = 'PENDING'

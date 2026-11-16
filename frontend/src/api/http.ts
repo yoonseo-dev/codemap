@@ -31,7 +31,11 @@ export const httpApi: CodemapApi = {
   subscribeJob(jobId, onEvent) {
     const source = new EventSource(`${base}/jobs/${enc(jobId)}/events`)
     for (const type of ['stage', 'done', 'failed'] as const) {
-      source.addEventListener(type, (e) => onEvent(JSON.parse((e as MessageEvent).data) as JobEvent))
+      source.addEventListener(type, (e) => {
+        onEvent(JSON.parse((e as MessageEvent).data) as JobEvent)
+        // 서버가 done/failed 뒤에 연결을 닫는데, 그대로 두면 EventSource가 자동으로 다시 붙는다
+        if (type !== 'stage') source.close()
+      })
     }
     return () => source.close()
   },

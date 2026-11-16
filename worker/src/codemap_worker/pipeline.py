@@ -61,6 +61,10 @@ class _Progress:
     def start(self) -> None:
         self._write(StageStatus.RUNNING)
 
+    def fail(self) -> None:
+        """실패한 단계를 마지막으로 보고된 진행률 그대로 FAILED로 쓴다. 화면이 어느 단계인지 알 수 있다."""
+        self._write(StageStatus.FAILED)
+
     def finish(self) -> None:
         self.percent = 100
         self._write(StageStatus.DONE)
@@ -108,6 +112,7 @@ def run_job(
             continue
 
         log.warning("job %s failed at %s: %s %s", job_id, stage, failure.code, failure.message)
+        progress.fail()
         store.mark_job_failed(job_id, failure)
         events.failed(job_id, failure)
         return

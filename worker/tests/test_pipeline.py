@@ -57,6 +57,10 @@ def test_failure_marks_stage_failed_and_cancels_the_rest(store, events):
     assert store.stages[StageName.HISTORY][0] is StageStatus.CANCELLED
     assert store.stages[StageName.DIVERGENCE][0] is StageStatus.CANCELLED
     assert store.graph is None
+    # failed 이벤트 직전에 실패한 단계의 FAILED 이벤트가 먼저 나간다 (프론트가 이걸로 단계를 표시한다)
+    before_last = events.items[-2]
+    assert before_last[:3] == ("stage", StageName.SEMANTIC, StageStatus.FAILED)
+    assert 0 < before_last[3] < 100  # 마지막으로 보고된 진행률을 유지한다
     last = events.items[-1]
     assert last[0] == "failed"
     assert last[1].stage is StageName.SEMANTIC and last[1].resumable is True

@@ -58,7 +58,8 @@ export interface Repository {
 export interface CommitRef {
   sha: string
   branch: string
-  date: IsoDateTime
+  /** 수집(INGEST) 전에는 알 수 없어 null일 수 있다 (Phase 1에서는 항상 null) */
+  date: IsoDateTime | null
 }
 
 export type JobStatus = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED'
