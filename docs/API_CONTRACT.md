@@ -63,6 +63,8 @@
 | `REPO_NOT_FOUND` | 404 | 이 저장소를 열 수 없어요 (비공개이거나 주소가 틀림) |
 | `UNSUPPORTED_LANGUAGE` | 422 | Java·Python 파일을 찾지 못했어요 |
 | `REPO_TOO_LARGE` | 413 | 저장소가 너무 커요 (500MB 초과) |
+| `NOT_RESUMABLE` | 409 | 다시 시도할 수 없는 작업이에요 (retry) |
+| `INVALID_REQUEST` | 400 | 요청 본문이 올바르지 않아요 |
 
 ### `GET /api/jobs/{jobId}`
 
@@ -88,6 +90,8 @@
 }
 ```
 
+`commit.date`는 수집(INGEST) 단계가 커밋 시각을 읽기 전에는 알 수 없어 `null`일 수 있습니다(Phase 1에서는 항상 `null`). `commit`, `startedAt`, `finishedAt`, `failure`도 값이 없으면 키를 빼지 않고 `null`로 내려옵니다.
+
 실패하면 `status: "FAILED"`, 해당 단계 `status: "FAILED"`, 뒤 단계는 `CANCELLED`가 되고 `failure`가 채워집니다.
 
 ```json
@@ -110,7 +114,7 @@ data: {"type":"done","jobId":"j_8f2a"}
 
 ### `POST /api/jobs/{jobId}/retry`
 
-`failure.resumable`이 `true`일 때만 됩니다. 응답은 `Job`이며, 실패한 단계부터 다시 `RUNNING`이 됩니다.
+`status`가 `FAILED`이고 `failure.resumable`이 `true`일 때만 됩니다. 아니면 `409 NOT_RESUMABLE`(같은 작업에 두 번 요청해도 두 번째는 이 오류입니다). 응답은 `Job`(`QUEUED`)이며, 실패한 단계부터 다시 실행됩니다. 이전 실행의 진행 이벤트는 지워집니다.
 
 ## 지도
 

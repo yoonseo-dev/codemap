@@ -15,7 +15,7 @@ GitHub 저장소를 입력받아 코드 관계를 **구조(호출·import) / 의
 - `backend/` — Spring Boot 4.1 (Java 21, Gradle) API 서버, 포트 8081. 저장소 등록·분석 작업 관리·결과 조회. 스키마는 **Flyway**(`src/main/resources/db/migration`)가 관리하고 `ddl-auto=validate`이므로, 엔티티를 바꾸면 반드시 마이그레이션을 추가해야 한다. 패키지 루트는 `com.codemap.api`.
 - `worker/` — Python 3.11 분석 워커(`codemap_worker`). RabbitMQ `analysis.jobs` 큐(durable, prefetch=1)에서 작업을 받아 `handle_job`에서 파이프라인 실행. 단계별 서브패키지: `ingest → structure → semantic → history → divergence`, 그리고 `validation`.
 - `frontend/` — React 19 + TypeScript + Vite, 3D는 react-three-fiber, 상태는 zustand, 서버 상태는 react-query, 코드 뷰어는 Monaco.
-- 흐름: API가 작업을 RabbitMQ에 발행 → 워커가 처리하며 Redis로 진행률 발행 → API가 SSE로 브라우저에 전달. (`DEVELOPMENT_PLAN.md`는 Pub/Sub으로 적혀 있으나 Stream으로 바꿀지 검토 중이다.) 결과(노드·엣지·임베딩 벡터)는 PostgreSQL + pgvector에 저장.
+- 흐름: API가 작업을 RabbitMQ에 발행 → 워커가 처리하며 Redis Stream `job:{id}:events`로 진행률 발행 → API가 `XRANGE` 폴링으로 읽어 SSE로 브라우저에 전달. 결과(노드·엣지·임베딩 벡터)는 PostgreSQL + pgvector에 저장.
 - 설계 원칙: 워커의 각 분석 단계는 "입력 → 순수 함수 → 결과 객체"로 만들고 DB 저장은 분리해, DB 없이 샘플 저장소 픽스처로 단위 테스트한다.
 
 ## Local infra

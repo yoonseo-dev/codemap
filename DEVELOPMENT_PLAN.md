@@ -59,9 +59,9 @@ codemap/
 모든 구성 요소가 서로 말을 주고받는지 먼저 확인합니다. 분석 결과는 하드코딩된 가짜 그래프입니다.
 
 **작업**
-1. **API: 저장소 등록과 작업 생성** — `POST /api/repositories {url}` → `repository`, `analysis_job` 저장 → RabbitMQ `analysis.jobs`에 `{jobId, repoUrl}` 발행. 같은 URL·같은 HEAD 커밋이면 기존 결과를 돌려줍니다(캐시).
-2. **워커: 작업 소비와 진행률 발행** — 단계마다 Redis 채널 `job:{id}:progress`에 `{stage, percent, message}` 발행, DB의 `analysis_job.stage/status` 갱신. 실패 시 `FAILED`와 오류 메시지 저장, RabbitMQ 재시도는 최대 2회(dead-letter 큐로 이동).
-3. **API: 진행률 SSE** — `GET /api/jobs/{id}/events`가 Redis 채널을 구독해 `SseEmitter`로 전달. 재접속 시 현재 상태부터 보내도록 마지막 진행률은 Redis 키에도 저장합니다.
+1. **API: 저장소 등록과 작업 생성** — `POST /api/analyses {repo}` → `repository`, `analysis_job`, `job_stage` 5행 저장 → 커밋 뒤 RabbitMQ `analysis.jobs`에 `{jobId, repoUrl, commitSha, fromStage}` 발행. 같은 저장소·같은 HEAD 커밋이면 기존 작업을 돌려줍니다(끝났으면 `cached: true`, 진행 중이면 그 작업).
+2. **워커: 작업 소비와 진행률 발행** — 단계마다 Redis Stream `job:{id}:events`에 프론트 `JobEvent`와 같은 JSON(`stage`/`done`/`failed`)을 `XADD`(MAXLEN ~1000, 24시간 만료)하고, DB의 `job_stage`·`analysis_job`을 갱신(0.5초에 한 번 이하). 분석 실패는 DB에 `FAILED`로 기록하고 ack, DB·Redis 같은 인프라 오류만 RabbitMQ 재시도(최대 2회, 5초 간격, 이후 `analysis.jobs.dlq`).
+3. **API: 진행률 SSE** — `GET /api/jobs/{id}/events`가 Redis Stream을 `XRANGE`로 0.5초마다 읽어 `SseEmitter`로 전달. Stream ID가 SSE `id`이고, 재접속 시 `Last-Event-ID` 다음부터 보냅니다. Pub/Sub 대신 Stream을 쓰는 이유: 구독 전에 발행된 이벤트가 사라지지 않아 새로고침·재접속에도 진행률이 이어집니다.
 4. **API: 결과 조회** — `GET /api/jobs/{id}/graph`가 노드·엣지 JSON을 반환(이 단계에선 가짜 데이터).
 5. **프론트: 입력 → 대기 → 결과** 세 화면과 라우팅, SSE 진행률 바.
 6. **인증 기초** — Spring Security + JWT. 처음엔 GitHub OAuth 대신 간단한 이메일 로그인으로 시작하고, 공유 링크는 Phase 7에서 별도 토큰으로 처리합니다.
@@ -208,9 +208,11 @@ docker compose up -d
 # 백엔드 (JAVA_HOME이 JDK 21을 가리켜야 함)
 cd backend && ./gradlew bootRun
 
-# 워커
+# 워커 (가짜 단계 하나에 CODEMAP_FAKE_STAGE_SECONDS초, 기본 1초)
 cd worker && .venv/Scripts/python -m codemap_worker.main
+#   일부러 실패시키기: CODEMAP_FAKE_FAIL_STAGE=SEMANTIC
 
-# 프론트엔드
-cd frontend && npm run dev
+# 프론트엔드: 백엔드에 있는 API(analyses, jobs, events, retry, graph)만 실제로 쓰고 나머지는 mock
+cd frontend && VITE_API=hybrid npm run dev
+#   VITE_API=http  전부 실제 백엔드 / 값 없음  전부 mock
 ```

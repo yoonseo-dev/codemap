@@ -72,6 +72,26 @@
 
 ## 3. 해결 완료
 
+### [기타] Bash 도구에서 `Stop-Process`로 워커를 끄는 명령이 종료 코드 255로 끝나고 뒤 명령이 실행되지 않음
+
+- **날짜**: 2026-11-16 → 2026-11-16 해결
+- **증상**: `powershell ... Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*codemap_worker*" } | Stop-Process` 뒤에 워커를 다시 띄우는 명령을 이었더니 `Exit code 255`로 끝났고 새 워커가 뜨지 않았다.
+- **원인**: 필터 패턴이 Bash 도구가 실행 중인 명령줄 자체(명령 안에 `codemap_worker`가 들어 있음)에도 맞아 자기 셸을 죽였다.
+- **해결**: 종료는 PowerShell 도구로 따로 하고, 필터를 `Name='python.exe'`와 `*-m codemap_worker.main*`으로 좁혔다. 재시작은 별도 명령으로 했다.
+- **재발 방지**: 프로세스를 이름·명령줄로 죽이는 명령에는 그 명령 문자열이 패턴에 걸리지 않게 한다.
+
+### [frontend] 진행 화면이 비거나 "0단계에서 멈췄어요"로 표시됨 (백엔드 연결 시)
+
+- **날짜**: 2026-11-16 → 2026-11-16 해결
+- **증상**:
+  - A. 분석이 끝나자 지도 화면이 통째로 비었다. 콘솔: `TypeError: Cannot read properties of null (reading 'slice')` (`frontend/src/lib/labels.ts`의 `ymd`, `TopBar.tsx`에서 호출).
+  - B. 실패 화면에 `분석이 0단계에서 멈췄어요`, `0단계부터 다시 시도`가 표시됐다.
+- **원인**:
+  - A. 백엔드가 Phase 1에서 `commit.date`를 `null`로 내려주는데 프론트 타입은 문자열만 허용했다.
+  - B. 워커가 실패한 단계의 `FAILED` 이벤트 없이 `failed` 이벤트만 보내, 프론트가 `FAILED` 단계를 못 찾았다(`findIndex`가 -1). mock은 두 이벤트를 모두 보내서 드러나지 않았다.
+- **해결**: A: `frontend/src/api/types.ts`의 `CommitRef.date`를 `IsoDateTime | null`로 바꾸고 `TopBar.tsx`에서 `null`을 처리했다. B: `worker/src/codemap_worker/pipeline.py`가 `failed` 이벤트 앞에 실패한 단계의 `FAILED` 이벤트를 보내도록 했다(테스트 추가).
+- **재발 방지**: 실제 백엔드와 mock의 이벤트 순서·`null` 허용 여부가 같은지 `VITE_API=hybrid`로 확인한다.
+
 ### [backend] Hibernate 스키마 검증 실패: `missing column [semx] in table [code_node]`
 
 - **날짜**: 2026-11-16 → 2026-11-16 해결
