@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -19,8 +20,11 @@ public class JobPublisher {
 
 	private final RabbitTemplate rabbit;
 	private final String queue;
+	private final StringRedisTemplate redis;
 
-	public JobPublisher(RabbitTemplate rabbit, @Value("${codemap.analysis-queue}") String queue) {
+	public JobPublisher(RabbitTemplate rabbit, StringRedisTemplate redis,
+			@Value("${codemap.analysis-queue}") String queue) {
+		this.redis = redis;
 		this.rabbit = rabbit;
 		this.queue = queue;
 	}
@@ -28,6 +32,10 @@ public class JobPublisher {
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
 	void onJobQueued(JobMessage message) {
 		try {
+			if (message.fromStage() != null) {
+				// 재시도: 이전 실행의 이벤트(옛 failed 등)가 SSE로 먼저 나가지 않게 스트림을 비운다.
+				redis.delete("job:" + message.jobId() + ":events");
+			}
 			rabbit.convertAndSend("", queue, message);
 		}
 		catch (RuntimeException e) {

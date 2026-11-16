@@ -7,6 +7,8 @@ import com.codemap.api.common.ApiException;
 import com.codemap.api.common.ErrorCode;
 import com.codemap.api.common.PublicId;
 import java.util.Optional;
+import com.codemap.api.analysis.JobMessage;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
@@ -16,10 +18,31 @@ public class JobService {
 
 	private final AnalysisJobRepository jobs;
 	private final JobStageRepository stages;
+	private final ApplicationEventPublisher events;
 
-	public JobService(AnalysisJobRepository jobs, JobStageRepository stages) {
+	public JobService(AnalysisJobRepository jobs, JobStageRepository stages, ApplicationEventPublisher events) {
 		this.jobs = jobs;
 		this.stages = stages;
+		this.events = events;
+	}
+
+	/** 실패한 단계부터 다시 실행한다. 실패한 단계와 그 뒤 단계를 처음 상태로 돌리고, 커밋 뒤에 큐에 발행한다. */
+	@Transactional
+	public JobResponse retry(long jobId) {
+		AnalysisJob job = jobs.findById(jobId).orElseThrow(() -> new ApiException(ErrorCode.JOB_NOT_FOUND));
+		StageName from = job.getFailureStage();
+		String repoUrl = job.getRepository().getUrl();
+		String sha = job.getCommitSha();
+		if (job.getStatus() != JobStatus.FAILED || !Boolean.TRUE.equals(job.getFailureResumable()) || from == null) {
+			throw new ApiException(ErrorCode.NOT_RESUMABLE);
+		}
+		// 조건부 UPDATE의 영향받은 행 수가 0이면 동시에 온 다른 요청이 먼저 처리한 것이다.
+		if (jobs.requeueFailed(jobId) == 0) {
+			throw new ApiException(ErrorCode.NOT_RESUMABLE);
+		}
+		stages.resetFrom(jobId, from.ordinal());
+		events.publishEvent(new JobMessage(jobId, repoUrl, sha, from));
+		return get(jobId);
 	}
 
 	@Transactional(readOnly = true)

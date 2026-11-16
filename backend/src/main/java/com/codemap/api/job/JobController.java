@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,6 +29,11 @@ public class JobController {
 	@GetMapping("/{jobId}")
 	public JobResponse get(@PathVariable String jobId) {
 		return service.get(PublicId.parseJob(jobId));
+	}
+
+	@PostMapping("/{jobId}/retry")
+	public JobResponse retry(@PathVariable String jobId) {
+		return service.retry(PublicId.parseJob(jobId));
 	}
 
 	@GetMapping(value = "/{jobId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

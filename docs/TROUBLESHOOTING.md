@@ -57,6 +57,15 @@
 - **원인**: 확인 못 함. 추정: Bash 도구로 명령이 넘어가는 과정 어딘가에서 백슬래시 이스케이프가 한 번 풀린다. A의 파싱 오류 위치(`line 289`의 `'`)도 추적하지 않았다.
 - **재발 방지(임시)**: 소스 파일은 heredoc 대신 Write 도구로 만든다. 백슬래시가 든 문자열은 만든 뒤 컴파일로 확인한다.
 
+### [backend] MockMvc `jsonPath`의 `[*]`·필터 경로가 값을 못 찾음 (`expected:<[...]> but was:<null>`)
+
+- **날짜**: 2026-11-16
+- **증상**: `JSON path "$.edges[*].since" expected:<[2026-01-02T03:04:05Z]> but was:<null>`, `No matching value at JSON path "$.edges[?(@.kind=='cochange')].since[0]"`. 같은 응답 본문을 찍어 보면 값은 올바르게 들어 있다.
+- **재현 조건**: Spring Boot 4.1 + `@AutoConfigureMockMvc`에서 `jsonPath`에 와일드카드(`[*]`)나 필터(`[?()]`)를 쓸 때. `$.a.b[0].c` 같은 확정 경로는 정상이었다.
+- **시도한 것**: 필터를 `[*]`와 `hasItem`으로 바꿔도 같았다. 응답 본문을 Jackson 3 `JsonMapper.readTree`로 파싱해 AssertJ로 검사하니 통과했다(`backend/src/test/java/com/codemap/api/graph/GraphControllerTest.java`).
+- **원인**: 확인 못 함. 추정: JsonPath가 쓰는 JSON 제공자와 Jackson 3 사이의 호환 문제.
+- **재발 방지(임시)**: 배열을 훑는 검사는 본문을 직접 파싱한다.
+
 ## 2. 원인 확인 · 미해결
 
 아직 기록된 문제가 없다.
