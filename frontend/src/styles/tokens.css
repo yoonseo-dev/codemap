@@ -1,0 +1,72 @@
+/* 디자인 토큰. Figma 파일(Codemap — Frontend Design)의 변수·텍스트 스타일과 같은 값이다.
+   색과 폰트는 여기서만 선언하고, 나머지 CSS는 토큰만 쓴다. */
+:root {
+  color-scheme: dark;
+
+  /* 색 */
+  --color-bg-canvas: #111111;
+  --color-bg-surface: #191918;
+  --color-bg-raised: #222220;
+  --color-line-subtle: #2c2b29;
+  --color-line-strong: #4a4844;
+  --color-text-primary: #edeae3;
+  --color-text-secondary: #a29e95;
+  --color-text-muted: #8f8b83;
+  --color-text-inverse: #111111;
+  --color-map-structure: #edeae3;
+  --color-map-semantic: #8fb3e8;
+  --color-map-history: #e8957a;
+  --color-divergence-mixed: #d8c27e;
+  --color-status-error: #f26d6d;
+  --color-scrim: rgb(17 17 17 / 0.55);
+  --color-shadow: rgb(0 0 0 / 0.45);
+
+  /* 폰트 */
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-body: 'IBM Plex Sans KR', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* 글자 크기 / 줄 높이 */
+  --text-display-xl: 88px;
+  --leading-display-xl: 96px;
+  --text-display-l: 48px;
+  --leading-display-l: 56px;
+  --text-display-m: 28px;
+  --leading-display-m: 34px;
+  --text-heading-l: 30px;
+  --leading-heading-l: 38px;
+  --text-heading-m: 20px;
+  --leading-heading-m: 28px;
+  --text-body: 14px;
+  --leading-body: 22px;
+  --text-small: 12px;
+  --leading-small: 18px;
+  --text-mono: 13px;
+  --leading-mono: 20px;
+
+  /* 간격 */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-ms: 12px;
+  --space-md: 16px;
+  --space-ml: 20px;
+  --space-lg: 24px;
+  --space-xl: 40px;
+  --space-2xl: 64px;
+  --space-3xl: 80px;
+
+  /* 모서리 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+
+  /* 크기 */
+  --topbar-height: 57px;
+  --panel-width: 340px;
+  --control-height: 36px;
+
+  /* 움직임 */
+  --dur-micro: 120ms;
+  --dur-short: 200ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}

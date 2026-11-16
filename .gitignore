@@ -3,6 +3,9 @@
 
 # 개인 참고 문서
 docs/CONCEPT.md
+
+# 디자인 검사 기록 (impeccable)
+.impeccable/
 .idea/
 .vscode/
 *.log
