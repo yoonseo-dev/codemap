@@ -36,6 +36,15 @@
 
 ## 1. 원인 미확인
 
+### [worker] 닫힌 포트로 psycopg 연결하면 25초가 넘도록 아무 로그 없이 멈춘 것처럼 보임
+
+- **날짜**: 2026-11-16
+- **증상**: 워커를 `CODEMAP_DATABASE_URL=postgresql://codemap:codemap@localhost:1/codemap`(닫힌 포트)로 띄우고 작업 메시지를 보냈더니, `waiting for jobs on 'analysis.jobs'` 뒤로 25초 동안 로그가 하나도 없었다. 종료 뒤 메시지 2개가 `analysis.jobs`에 그대로 남아 있었다(처리 중이던 메시지가 연결 종료로 되돌아온 것).
+- **재현 조건**: Windows, 워커 `PgStore`가 `psycopg.connect`를 `connect_timeout` 없이 부를 때.
+- **시도한 것**: URL에 `?connect_timeout=2`를 붙이니 재시도 2번 뒤 DLQ까지 40초 안에 정상 동작했다(`analysis.jobs.dlq`에 2건: 인프라 오류로 재시도를 다 쓴 작업 1건, 깨진 메시지 1건).
+- **원인**: 확인 못 함. 추정: Windows에서 `localhost`가 IPv6(`::1`)와 IPv4를 차례로 시도하고, 거부된 연결 재시도에 시간이 오래 걸린다.
+- **재발 방지(임시)**: 운영 DB URL에는 `connect_timeout`을 넣는다. `PgStore`에 기본값을 넣을지는 Phase 2에서 정한다.
+
 ### [기타] Bash 도구 heredoc으로 Java 파일을 만들면 `\\d`가 `\d`로 저장되고, 긴 스크립트는 파싱 오류로 통째로 취소됨
 
 - **날짜**: 2026-11-16
