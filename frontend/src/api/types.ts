@@ -21,6 +21,8 @@ export type ErrorCode =
   | 'REPO_TOO_LARGE'
   | 'JOB_NOT_FOUND'
   | 'JOB_NOT_READY'
+  | 'NOT_RESUMABLE'
+  | 'INVALID_REQUEST'
   | 'NOT_FOUND'
   | 'UNAUTHORIZED'
   | 'INTERNAL'
