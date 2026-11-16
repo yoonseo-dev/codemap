@@ -52,7 +52,8 @@
   - A. 여러 파일을 `cat > … <<'EOF'`로 한 번에 만드는 긴 스크립트가 `/usr/bin/bash: -c: line 289: unexpected EOF while looking for matching `''`로 실패했고, 스크립트 안의 명령이 하나도 실행되지 않았다(만들려던 디렉터리의 파일이 전부 없었다).
   - B. 작은따옴표로 감싼 heredoc(`<<'EOF'`)에 `Pattern.compile("j_(\\d{1,18})")`를 적었는데, 저장된 `backend/src/main/java/com/codemap/api/common/PublicId.java`에는 `"j_(\d{1,18})"`(백슬래시 1개)가 들어 있었다. 컴파일 오류: `error: illegal escape character`.
 - **재현 조건**: Windows Git Bash(Claude Code Bash 도구)에서 Java 코드가 든 긴 heredoc 스크립트를 한 번에 실행할 때.
-- **시도한 것**: 파일을 Write 도구로 하나씩 만들고, 정규식은 `\d` 대신 `[0-9]`로 바꿨다. 이후 같은 증상은 없었다.
+- **시도한 것**: 파일을 Write 도구로 하나씩 만들고, 정규식은 `\d` 대신 `[0-9]`로 바꿨다. Write 도구로는 같은 증상이 없었다.
+- **재발**: 2026-11-16 Java 파일 4개를 한 번에 만드는 heredoc 스크립트에서 A 증상이 다시 났다(`unexpected EOF while looking for matching `''`, 아무것도 실행되지 않음). 이 스크립트에는 한국어 주석과 작은따옴표(`'`)가 든 문자열이 섞여 있었다(추정: 이것과 관련). Write 도구로 바꾸니 해결됐다.
 - **원인**: 확인 못 함. 추정: Bash 도구로 명령이 넘어가는 과정 어딘가에서 백슬래시 이스케이프가 한 번 풀린다. A의 파싱 오류 위치(`line 289`의 `'`)도 추적하지 않았다.
 - **재발 방지(임시)**: 소스 파일은 heredoc 대신 Write 도구로 만든다. 백슬래시가 든 문자열은 만든 뒤 컴파일로 확인한다.
 
