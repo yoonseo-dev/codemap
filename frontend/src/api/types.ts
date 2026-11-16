@@ -21,6 +21,8 @@ export type ErrorCode =
   | 'REPO_TOO_LARGE'
   | 'JOB_NOT_FOUND'
   | 'JOB_NOT_READY'
+  | 'NOT_RESUMABLE'
+  | 'INVALID_REQUEST'
   | 'NOT_FOUND'
   | 'UNAUTHORIZED'
   | 'INTERNAL'
@@ -56,7 +58,8 @@ export interface Repository {
 export interface CommitRef {
   sha: string
   branch: string
-  date: IsoDateTime
+  /** 수집(INGEST) 전에는 알 수 없어 null일 수 있다 (Phase 1에서는 항상 null) */
+  date: IsoDateTime | null
 }
 
 export type JobStatus = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED'
