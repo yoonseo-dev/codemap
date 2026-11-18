@@ -1,4 +1,5 @@
-"""5단계 정의. Phase 1은 가짜 구현이며, Phase 2부터 각 함수 안만 진짜 로직으로 바꾼다.
+"""5단계 정의. Phase 2부터 INGEST·STRUCTURE가 진짜이고 나머지는 가짜 구현이다.
+가짜 단계(FAKE_STAGE_FUNCTIONS)는 Phase 3·4·5에서 하나씩 진짜 로직으로 바꾼다.
 
 단계 함수 모양: `run(ctx, report)`.
 `report(percent, detail, metrics)`는 진행률을 알리는 콜백이다. 얼마나 자주 DB·Redis에 쓸지는
@@ -8,14 +9,22 @@
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 
+from codemap_worker.ingest import IngestConfig, IngestResult, ingest
 from codemap_worker.models import STAGES, StageError, StageName
 
 
 class Report(Protocol):
     def __call__(self, percent: int, detail: str | None, metrics: dict[str, float]) -> None: ...
+
+
+@dataclass
+class Artifacts:
+    """앞 단계가 만든 결과를 뒤 단계에 넘기는 통. 단계 함수가 채운다."""
+
+    ingest: IngestResult | None = None
 
 
 @dataclass(frozen=True)
@@ -26,6 +35,9 @@ class StageContext:
     stage_seconds: float = 1.0
     fail_stage: StageName | None = None
     sleep: Callable[[float], None] = time.sleep
+    store: Any = None  # codemap_worker.store.Store (진짜 단계가 결과를 저장할 때 쓴다)
+    ingest_config: IngestConfig | None = None
+    artifacts: Artifacts = field(default_factory=Artifacts)
 
 
 StageFn = Callable[[StageContext, Report], None]
@@ -53,7 +65,7 @@ def _n(x: float) -> int:
     return round(x)
 
 
-STAGE_FUNCTIONS: dict[StageName, StageFn] = {
+FAKE_STAGE_FUNCTIONS: dict[StageName, StageFn] = {
     StageName.INGEST: _fake(
         StageName.INGEST,
         lambda r: (
@@ -89,6 +101,31 @@ STAGE_FUNCTIONS: dict[StageName, StageFn] = {
             {"candidates": _n(41 * r)},
         ),
     ),
+}
+
+
+def _maybe_fail(ctx: StageContext, stage: StageName, report: Report) -> None:
+    """진짜 단계에서도 CODEMAP_FAKE_FAIL_STAGE로 실패 화면을 확인할 수 있게 한다."""
+    if ctx.fail_stage == stage:
+        report(60, None, {})
+        raise StageError("FAKE_FAILURE", f"{stage.value} 단계를 일부러 실패시켰어요", True)
+
+
+def run_ingest(ctx: StageContext, report: Report) -> None:
+    """진짜 수집: clone → 커밋 정보 → 소스 파일. 결과는 artifacts로 넘기고 커밋 시각은 DB에 쓴다."""
+    if ctx.ingest_config is None:
+        raise StageError("INTERNAL", "수집 설정이 없어요", True)
+    result = ingest(ctx.repo_url, ctx.commit_sha, ctx.ingest_config, report)
+    ctx.artifacts.ingest = result
+    if ctx.store is not None:
+        ctx.store.set_commit_info(ctx.job_id, result.commit.branch, result.commit.commit_date)
+    _maybe_fail(ctx, StageName.INGEST, report)
+
+
+# 지금 쓰는 단계 함수. STRUCTURE부터는 아직 가짜다.
+STAGE_FUNCTIONS: dict[StageName, StageFn] = {
+    **FAKE_STAGE_FUNCTIONS,
+    StageName.INGEST: run_ingest,
 }
 
 assert set(STAGE_FUNCTIONS) == set(STAGES)

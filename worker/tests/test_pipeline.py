@@ -3,6 +3,7 @@ import pytest
 from codemap_worker.messages import JobMessage
 from codemap_worker.models import STAGES, StageError, StageName, StageStatus
 from codemap_worker.pipeline import PipelineConfig, run_job
+from codemap_worker.stages import FAKE_STAGE_FUNCTIONS
 
 FAST = PipelineConfig(stage_seconds=0, min_interval=0)
 
@@ -15,6 +16,8 @@ def message(from_stage=None) -> JobMessage:
 
 
 def run(store, events, config=FAST, from_stage=None, **kw):
+    # 이 파일은 파이프라인 흐름만 본다. 진짜 수집(clone)은 test_ingest.py가 따로 확인한다.
+    kw.setdefault("stage_functions", FAKE_STAGE_FUNCTIONS)
     run_job(message(from_stage), store, events, config, sleep=lambda _s: None, **kw)
 
 

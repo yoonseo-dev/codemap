@@ -26,5 +26,11 @@ class Settings(BaseSettings):
     max_commits: int = 2000
     bulk_commit_file_threshold: int = 50
 
+    # Phase 2 수집(INGEST)
+    clone_timeout_seconds: int = 300  # git 명령 하나가 이 시간을 넘으면 CLONE_TIMEOUT
+    max_repo_mb: int = 500  # 작업 폴더가 이 크기를 넘으면 REPO_TOO_LARGE
+    max_file_kb: int = 1024  # 이보다 큰 소스 파일은 분석에서 뺀다
+    allow_local_repos: bool = False  # 테스트에서만 켠다. 운영은 https://github.com/ 주소만 받는다
+
 
 settings = Settings()

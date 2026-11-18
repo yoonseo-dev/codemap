@@ -15,6 +15,7 @@ class FakeStore:
     graph: tuple | None = None
     job_status: str = "QUEUED"
     failure: Failure | None = None
+    commit_info: tuple | None = None
 
     def mark_job_running(self, job_id, from_stage):
         self.calls.append(("running", job_id, from_stage))
@@ -29,6 +30,10 @@ class FakeStore:
     def update_stage(self, job_id, stage, status, percent, detail, metrics):
         self.calls.append(("stage", stage, status, percent))
         self.stages[stage] = (status, percent)
+
+    def set_commit_info(self, job_id, branch, commit_date):
+        self.calls.append(("commit_info", branch, commit_date))
+        self.commit_info = (branch, commit_date)
 
     def save_graph(self, job_id, nodes, edges):
         self.calls.append(("graph",))

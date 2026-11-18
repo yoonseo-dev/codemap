@@ -6,6 +6,7 @@
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Protocol
 
 import psycopg
@@ -32,6 +33,10 @@ class Store(Protocol):
         percent: int,
         detail: str | None,
         metrics: dict[str, float],
+    ) -> None: ...
+
+    def set_commit_info(
+        self, job_id: int, branch: str | None, commit_date: datetime | None
     ) -> None: ...
 
     def save_graph(
@@ -100,6 +105,14 @@ class PgStore:
                 (status.value, percent, detail, Jsonb(metrics), job_id, stage.value),
             )
             conn.execute("UPDATE analysis_job SET stage = %s WHERE id = %s", (stage.value, job_id))
+
+    def set_commit_info(self, job_id, branch, commit_date) -> None:
+        """분석 커밋의 브랜치와 시각. branch를 모르면(None) 기존 값을 그대로 둔다."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE analysis_job SET commit_date = %s, branch = COALESCE(%s, branch) WHERE id = %s",
+                (commit_date, branch, job_id),
+            )
 
     def save_graph(self, job_id, nodes, edges) -> None:
         with self._connect() as conn:
