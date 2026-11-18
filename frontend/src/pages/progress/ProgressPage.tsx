@@ -117,10 +117,14 @@ export function ProgressPage() {
 
           {failed && current.failure ? (
             <div className={`${styles.note} ${styles.noteError}`} role="alert">
-              <p className={styles.noteHead}><AlertIcon className={styles.errorIcon} />앞 단계 결과는 저장돼 있어요</p>
+              <p className={styles.noteHead}><AlertIcon className={styles.errorIcon} />{current.failure.message}</p>
               <p className={styles.noteBody}>
-                {failedIndex > 0 && `앞의 ${failedIndex}단계(${current.stages.slice(0, failedIndex).map((s) => STAGE_LABEL[s.stage]).join(', ')})는 끝났습니다. `}
-                {current.failure.resumable ? `다시 시도하면 처음부터가 아니라 ${failedIndex + 1}단계(${STAGE_LABEL[current.failure.stage]})부터 이어서 진행해요.` : '이 작업은 처음부터 다시 분석해야 해요.'}
+                {failedIndex > 0 && `앞의 ${failedIndex}단계(${current.stages.slice(0, failedIndex).map((s) => STAGE_LABEL[s.stage]).join(', ')}) 결과는 저장돼 있어요. `}
+                {current.failure.resumable
+                  ? (failedIndex > 0
+                    ? `다시 시도하면 처음부터가 아니라 ${failedIndex + 1}단계(${STAGE_LABEL[current.failure.stage]})부터 이어서 진행해요.`
+                    : '다시 시도하면 처음부터 분석해요.')
+                  : '같은 저장소는 다시 시도해도 결과가 같아요. 다른 저장소를 분석해 주세요.'}
               </p>
               <div className={styles.noteActions}>
                 {current.failure.resumable && (

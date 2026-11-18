@@ -25,7 +25,7 @@ export function TopBar({ repository, commit, mode, onSearch, actions }: Props) {
           <>
             <span className={styles.divider} aria-hidden="true" />
             <span className="mono">{repository.owner}/{repository.name}</span>
-            {commit && <span className={styles.commit}>{commit.date ? `${ymd(commit.date)} ` : ''}커밋 <span className="mono">{commit.sha}</span></span>}
+            {commit && <span className={styles.commit}>{commit.date ? `${ymd(commit.date)} ` : ''}커밋 <span className="mono">{commit.sha.slice(0, 7)}</span></span>}
           </>
         )}
       </div>

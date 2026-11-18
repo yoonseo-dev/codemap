@@ -43,6 +43,7 @@
 - **재현 조건**: Windows, 워커 `PgStore`가 `psycopg.connect`를 `connect_timeout` 없이 부를 때.
 - **시도한 것**: URL에 `?connect_timeout=2`를 붙이니 재시도 2번 뒤 DLQ까지 40초 안에 정상 동작했다(`analysis.jobs.dlq`에 2건: 인프라 오류로 재시도를 다 쓴 작업 1건, 깨진 메시지 1건).
 - **원인**: 확인 못 함. 추정: Windows에서 `localhost`가 IPv6(`::1`)와 IPv4를 차례로 시도하고, 거부된 연결 재시도에 시간이 오래 걸린다.
+- **추가 확인**: 2026-11-18 Docker가 꺼진 상태(포트 5442에 아무것도 없음)에서도 같은 멈춤이 났다. 인프라가 꺼진 경우에 실제로 자주 만나는 증상이다.
 - **재발 방지(임시)**: 운영 DB URL에는 `connect_timeout`을 넣는다. `PgStore`에 기본값을 넣을지는 Phase 2에서 정한다.
 
 ### [기타] Bash 도구 heredoc으로 Java 파일을 만들면 `\\d`가 `\d`로 저장되고, 긴 스크립트는 파싱 오류로 통째로 취소됨
@@ -54,6 +55,7 @@
 - **재현 조건**: Windows Git Bash(Claude Code Bash 도구)에서 Java 코드가 든 긴 heredoc 스크립트를 한 번에 실행할 때.
 - **시도한 것**: 파일을 Write 도구로 하나씩 만들고, 정규식은 `\d` 대신 `[0-9]`로 바꿨다. Write 도구로는 같은 증상이 없었다.
 - **재발**: 2026-11-16 Java 파일 4개를 한 번에 만드는 heredoc 스크립트에서 A 증상이 다시 났다(`unexpected EOF while looking for matching `''`, 아무것도 실행되지 않음). 이 스크립트에는 한국어 주석과 작은따옴표(`'`)가 든 문자열이 섞여 있었다(추정: 이것과 관련). Write 도구로 바꾸니 해결됐다.
+- **재발 2**: 2026-11-18 Python 코드를 고치는 `python - <<'PY' ... PY` 스크립트(한국어 docstring과 작은따옴표가 섞인 긴 문자열)에서 같은 `unexpected EOF`가 또 났다. 패치 스크립트를 Write 도구로 파일에 만든 뒤 `python 파일`로 실행하면 안정적이었다. 한국어와 따옴표가 든 긴 heredoc은 쓰지 않는다.
 - **원인**: 확인 못 함. 추정: Bash 도구로 명령이 넘어가는 과정 어딘가에서 백슬래시 이스케이프가 한 번 풀린다. A의 파싱 오류 위치(`line 289`의 `'`)도 추적하지 않았다.
 - **재발 방지(임시)**: 소스 파일은 heredoc 대신 Write 도구로 만든다. 백슬래시가 든 문자열은 만든 뒤 컴파일로 확인한다.
 
@@ -92,6 +94,15 @@
 - **해결**: A: `frontend/src/api/types.ts`의 `CommitRef.date`를 `IsoDateTime | null`로 바꾸고 `TopBar.tsx`에서 `null`을 처리했다. B: `worker/src/codemap_worker/pipeline.py`가 `failed` 이벤트 앞에 실패한 단계의 `FAILED` 이벤트를 보내도록 했다(테스트 추가).
 - **재발 방지**: 실제 백엔드와 mock의 이벤트 순서·`null` 허용 여부가 같은지 `VITE_API=hybrid`로 확인한다.
 
+### [worker] `TypeError: rmtree() got an unexpected keyword argument 'onexc'`
+
+- **날짜**: 2026-11-18 → 2026-11-18 해결
+- **증상**: 작업 폴더를 지우는 `remove_tree`(`worker/src/codemap_worker/ingest/git.py`)가 `TypeError: rmtree() got an unexpected keyword argument 'onexc'`로 실패했다.
+- **재현 조건**: 워커 가상환경이 Python 3.11일 때(`requires-python = ">=3.11"`).
+- **원인**: `shutil.rmtree(..., onexc=)`는 Python 3.12에서 추가됐다. 3.11에는 `onerror=`만 있다.
+- **해결**: `sys.version_info >= (3, 12)`이면 `onexc`, 아니면 `onerror`를 쓰게 했다. 둘 다 같은 처리 함수를 쓴다.
+- **재발 방지**: 워커는 3.11을 지원하므로 3.12 이상에서 추가된 표준 라이브러리 기능은 버전 분기 없이 쓰지 않는다.
+
 ### [backend] Hibernate 스키마 검증 실패: `missing column [semx] in table [code_node]`
 
 - **날짜**: 2026-11-16 → 2026-11-16 해결
@@ -109,3 +120,4 @@
 - **원인**: Docker Desktop(데몬)이 실행 중이 아니었다.
 - **해결**: Docker Desktop을 켠 뒤 `docker compose up -d`를 다시 실행했다. PostgreSQL은 `docker compose ps`의 healthy로, Redis는 `redis-cli ping`으로, RabbitMQ는 관리 API(`localhost:15682`)가 200을 주는지로 확인했다. Redis와 RabbitMQ는 healthcheck가 없어 `ps`만으로는 준비 여부를 알 수 없다.
 - **재발 방지**: 인프라 명령 전에 Docker Desktop이 켜져 있는지 확인한다.
+- **재발**: 2026-11-18 Phase 2 작업 중 Docker가 꺼져 있었다(날짜가 바뀐 뒤 재시작됐을 것으로 추정). 이번에는 에러 메시지 없이 DB에 접속하는 파이썬 스크립트가 60초 넘게 멈춰 있었고(`psycopg.connect`), `docker compose ps`가 같은 `dockerDesktopLinuxEngine` 오류를 냈다. Docker Desktop을 실행하고 `docker compose up -d`를 다시 하니 해결됐다. 위의 "닫힌 포트로 psycopg 연결하면 멈춘 것처럼 보임" 항목과 같은 증상이다.

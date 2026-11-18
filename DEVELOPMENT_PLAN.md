@@ -72,17 +72,29 @@ codemap/
 
 ## Phase 2 — 수집 + 구조 지도 (1.5주)
 
-함수·클래스를 노드로, 호출·import를 엣지로 만듭니다.
+함수·메서드를 노드로, 호출·import를 엣지로 만듭니다. (완료: 수집과 구조 지도가 진짜가 됐고, 의미·역사·어긋남 단계는 아직 가짜입니다.)
 
-**작업**
-1. **수집(ingest)** — `git clone --filter=blob:none`으로 받아 디스크 사용을 줄이고, 기본 브랜치의 최근 2,000개 커밋 범위를 기록합니다. 저장소 크기 상한(예: 500MB)을 넘으면 거절합니다.
-2. **파싱** — tree-sitter로 Java/Python 파일에서 함수·메서드·클래스 정의를 뽑아 노드 ID를 `파일경로::클래스.함수` 형태로 정합니다. 소스 범위(시작·끝 줄)도 저장해 코드 뷰어에서 씁니다.
-3. **import 엣지** — 파일 간 import를 모듈 경로 → 파일 경로로 해석합니다(Python 패키지 경로, Java 패키지 + 클래스명).
-4. **호출 엣지** — 호출식의 이름을 같은 파일 → import된 심볼 → 같은 패키지 순으로 해석합니다. 동적 디스패치·리플렉션은 정확히 못 잡으므로, 해석 실패한 호출 비율을 지표로 남겨 품질을 추적합니다.
-5. **DB 스키마(V2)** — `code_node(id, job_id, path, name, kind, start_line, end_line)`, `code_edge(job_id, src, dst, kind, weight)` 테이블과 인덱스.
-6. **구조 거리** — 호출·import 그래프를 무방향으로 보고 최단 경로 홉 수로 정의합니다(연결 없음 = ∞). 쌍 전체 계산은 비싸므로 Phase 5의 후보 쌍에 대해서만 BFS(최대 4홉)로 구합니다.
+**작업과 실제로 한 것**
+1. **수집(ingest)** — `git clone --filter=blob:none --single-branch --no-checkout` 후 `*.java`·`*.py`만 sparse checkout으로 받습니다(저장소당 약 5~7MB). 큐 메시지의 `commitSha`를 체크아웃하고, 그 커밋 이전 최근 2,000개의 커밋 수와 대량 커밋(파일 50개 이상) 수를 셉니다. 커밋 시각과 브랜치는 `analysis_job`에 저장돼 `commit.date`가 채워집니다. 크기 상한(500MB)은 받는 도중에도 감시해 넘으면 멈추고 폴더를 지웁니다(`REPO_TOO_LARGE`). Java·Python 파일이 없으면 `UNSUPPORTED_LANGUAGE`. 두 실패는 재시도 불가, `CLONE_FAILED`·`CLONE_TIMEOUT`은 재시도 가능. git은 셸·프롬프트·LFS·훅 없이 시간 제한을 걸고 실행합니다.
+2. **파싱** — tree-sitter로 함수·메서드·생성자를 뽑습니다. 클래스는 노드가 아니라 ID 접두사입니다(`파일경로::Class.method`). 중첩 함수·람다·익명 클래스는 바깥 정의의 일부로 셉니다. 같은 ID가 겹치면 Java는 `(파라미터 수)`, 그래도 겹치면 `#2`. 시작·끝 줄을 저장합니다.
+3. **import 엣지** — Python은 모듈 이름 → 파일(소스 루트에 가까운 후보 우선, 상대 import, 패키지 `__init__`의 재내보내기 추적), Java는 `패키지.클래스` → 파일. 엣지의 양 끝은 함수이므로, 출발은 import한 파일의 대표 노드(가장 먼저 정의된 것), 도착은 가져온 심볼 또는 그 파일의 대표 노드입니다.
+4. **호출 엣지** — 같은 클래스·파일 → import된 심볼 → (Java) 같은 패키지·와일드카드 순으로 해석합니다. Java는 변수·필드·파라미터의 *선언된* 타입과 인자 수(오버로드)도 씁니다. 후보가 서로 다른 파일에 있으면 모호함으로 두고 엣지를 만들지 않습니다. 프로젝트에 없는 이름(표준 라이브러리 등)은 외부 호출로 세어 해석 성공률의 분모에서 뺍니다.
+5. **DB 스키마** — V2의 `code_node`·`code_edge`로 충분해 새 마이그레이션은 없었습니다. `GET /graph` 응답이 크므로(gson 3.5MB) gzip을 켰습니다(209KB).
+6. **구조 거리** — `structure/distance.py`에 구현만 해 두었습니다(호출·import 무방향 BFS, 최대 4홉, 없으면 None). Phase 5의 후보 쌍에서 씁니다.
 
-**완료 기준**: 기준 저장소에서 노드·엣지가 저장되고, 호출 해석 성공률을 확인할 수 있다. 샘플 픽스처 저장소로 파서 단위 테스트가 통과한다.
+**기준 저장소 측정** (CLI `python -m codemap_worker.structure <폴더>`, 전체 파이프라인 시간은 clone 포함)
+
+| 저장소 | 함수 수 | 호출 해석 성공률 | 테스트 파일 제외 | 분석 시간 |
+| --- | --- | --- | --- | --- |
+| google/gson (Java) | 3,209 | 84% | 88% | 21초 |
+| pallets/werkzeug (Python) | 1,983 | 47% | 46% | 17초 |
+| pallets/flask (Python) | 857 | 30% | 46% | 11초 |
+
+Python은 Java보다 낮다. 변수의 타입을 모르는 호출(`client.get`), 부모 클래스에 정의된 메서드, `super().__init__()` 때문이며, **상속을 따라가는 개선을 Phase 5 전에 한다**(후속 과제).
+
+**아직 가짜인 것**: 의미 좌표와 `similar` 엣지(Phase 4), `cochange` 엣지(Phase 3), 어긋남(Phase 5). 가짜 값은 실제 노드 위에 시드 고정으로 만들며 해당 단계 metrics에 `fake: 1`이 붙습니다.
+
+**완료 기준**: 기준 저장소에서 노드·엣지가 저장되고, 호출 해석 성공률을 확인할 수 있다. 샘플 픽스처 저장소로 파서 단위 테스트가 통과한다. (달성)
 
 ---
 
@@ -182,7 +194,7 @@ codemap/
 1. **컨테이너화** — backend(멀티 스테이지 빌드), worker, frontend(nginx 정적 서빙 + `/api` 리버스 프록시) Dockerfile 작성, `docker-compose.prod.yml`로 5개 서비스 통합.
 2. **CD** — GitHub Actions에서 main 머지 시 이미지 빌드 → GHCR 푸시 → VM에 SSH 접속해 `docker compose pull && up -d`.
 3. **VM 설정** — 클라우드 VM 1대, 도메인 + HTTPS(Caddy 또는 certbot), 비밀값은 GitHub Secrets와 VM의 `.env`로 관리.
-4. **운영 장치** — 워커 동시 실행 수 제한, clone 디스크 정리 작업, 저장소 크기·함수 수 상한, Spring Actuator 헬스 체크, 백업(pg_dump 일 1회).
+4. **운영 장치** — 워커 동시 실행 수 제한, clone 디스크 정리 작업(작업 폴더 `{workdir}/{owner}__{name}@{sha}`가 정리 없이 쌓이며 저장소당 약 5~7MB, 같은 SHA는 재사용), 저장소 크기·함수 수 상한, Spring Actuator 헬스 체크, 백업(pg_dump 일 1회).
 5. **데모 준비** — 기준 저장소들의 분석 결과를 미리 캐시해 두고, README에 스크린샷·검증 결과 요약을 정리합니다.
 
 **완료 기준**: 공개 URL에서 저장소를 넣고 결과를 볼 수 있으며, main에 푸시하면 자동 배포된다.

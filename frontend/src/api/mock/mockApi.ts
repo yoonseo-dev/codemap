@@ -61,8 +61,16 @@ const RECENT = [
 ]
 for (const r of RECENT) jobs.set(r.jobId, { job: doneJob(r.jobId, r.repo), failAt: null, listeners: new Set() })
 
-/** hybrid 모드: 실제 백엔드가 만든 작업 ID로도 mock 엔드포인트(어긋남·검색 등)가 동작하게 끝난 작업으로 등록한다 */
-export function adoptJob(jobId: string) {
+/** 실제 그래프를 기준으로 mock이 동작해야 하는 작업 ID (hybrid 모드) */
+const adopted = new Set<string>()
+
+/**
+ * hybrid 모드: 실제 백엔드가 만든 작업의 그래프를 받아 mock 엔드포인트(노드 상세·검색·어긋남 등)가
+ * mock 그래프가 아니라 이 실제 그래프를 기준으로 동작하게 한다.
+ */
+export function adoptJob(jobId: string, graph: Graph) {
+  graphs.set(jobId, graph)
+  adopted.add(jobId)
   if (!jobs.has(jobId)) jobs.set(jobId, { job: doneJob(jobId, repoOf('hybrid', 'mock')), failAt: null, listeners: new Set() })
 }
 
@@ -121,7 +129,13 @@ function graphOf(jobId: string) {
 }
 
 function divergencesOf(jobId: string): Divergence[] {
-  return divergencesFor(jobId).map((d) => ({ ...d, verdict: verdicts.get(d.id)?.verdict ?? null }))
+  let list = divergencesFor(jobId)
+  if (adopted.has(jobId)) {
+    // mock 어긋남은 mock 그래프의 함수를 가리킨다. 실제 그래프에 없는 것은 뺀다(실제 어긋남은 Phase 5에서 생긴다).
+    const ids = new Set(graphs.get(jobId)?.nodes.map((n) => n.id))
+    list = list.filter((d) => ids.has(d.source) && (d.target === null || ids.has(d.target))).map((d, i) => ({ ...d, rank: i + 1 }))
+  }
+  return list.map((d) => ({ ...d, verdict: verdicts.get(d.id)?.verdict ?? null }))
 }
 
 function ready(jobId: string) {

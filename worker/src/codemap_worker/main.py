@@ -28,6 +28,7 @@ from pydantic import ValidationError
 
 from codemap_worker.config import Settings, settings
 from codemap_worker.events import RedisEventPublisher
+from codemap_worker.ingest import IngestConfig
 from codemap_worker.messages import JobMessage
 from codemap_worker.models import StageName
 from codemap_worker.pipeline import PipelineConfig, run_job
@@ -104,6 +105,7 @@ def build_runner(cfg: Settings) -> Callable[[JobMessage], None]:
         stage_seconds=cfg.fake_stage_seconds,
         fail_stage=StageName(cfg.fake_fail_stage) if cfg.fake_fail_stage else None,
         min_interval=cfg.progress_min_interval,
+        ingest=IngestConfig.from_settings(cfg),
     )
     return lambda msg: run_job(msg, store, events, pipeline_config)
 

@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from codemap_worker.events import EventPublisher
-from codemap_worker.fake_graph import make_fake_graph
+from codemap_worker.ingest import IngestConfig
 from codemap_worker.messages import JobMessage
 from codemap_worker.models import STAGES, Failure, StageError, StageName, StageStatus
 from codemap_worker.stages import STAGE_FUNCTIONS, StageContext, StageFn
@@ -25,6 +25,7 @@ class PipelineConfig:
     fail_stage: StageName | None = None
     # 같은 단계 안에서 진행률을 DB·Redis에 쓰는 최소 간격(초). 시작·완료·실패는 항상 바로 쓴다.
     min_interval: float = 0.5
+    ingest: IngestConfig | None = None  # 진짜 수집 설정. 가짜 단계만 쓰는 테스트에서는 없어도 된다
 
 
 class _Progress:
@@ -94,6 +95,8 @@ def run_job(
         stage_seconds=config.stage_seconds,
         fail_stage=config.fail_stage,
         sleep=sleep,
+        store=store,
+        ingest_config=config.ingest,
     )
     start = STAGES.index(msg.from_stage) if msg.from_stage else 0
 
@@ -117,8 +120,7 @@ def run_job(
         events.failed(job_id, failure)
         return
 
-    nodes, edges = make_fake_graph()
-    store.save_graph(job_id, nodes, edges)
+    # 노드·엣지는 각 단계가 저장했다 (STRUCTURE: 노드·call·import, SEMANTIC: 좌표·similar, HISTORY: cochange)
     store.mark_job_done(job_id)
     events.done(job_id)
-    log.info("job %s done (%d nodes, %d edges)", job_id, len(nodes), len(edges))
+    log.info("job %s done", job_id)

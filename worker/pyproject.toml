@@ -40,3 +40,5 @@ pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
+# 파서 테스트용 샘플 저장소. 일부러 평범한 코드이고 린트 대상이 아니다.
+extend-exclude = ["tests/fixtures"]
