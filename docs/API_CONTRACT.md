@@ -61,10 +61,12 @@
 | --- | --- | --- |
 | `INVALID_URL` | 400 | GitHub 저장소 주소가 아니에요 |
 | `REPO_NOT_FOUND` | 404 | 이 저장소를 열 수 없어요 (비공개이거나 주소가 틀림) |
-| `UNSUPPORTED_LANGUAGE` | 422 | Java·Python 파일을 찾지 못했어요 |
-| `REPO_TOO_LARGE` | 413 | 저장소가 너무 커요 (500MB 초과) |
+| `UNSUPPORTED_LANGUAGE` | 422 | Java·Python 파일을 찾지 못했어요 (*) |
+| `REPO_TOO_LARGE` | 413 | 저장소가 너무 커요 (500MB 초과) (*) |
 | `NOT_RESUMABLE` | 409 | 다시 시도할 수 없는 작업이에요 (retry) |
 | `INVALID_REQUEST` | 400 | 요청 본문이 올바르지 않아요 |
+
+(*) `UNSUPPORTED_LANGUAGE`와 `REPO_TOO_LARGE`는 저장소를 내려받아 봐야 알 수 있어서 `POST /api/analyses`의 HTTP 오류로는 나오지 않습니다. 분석 중에 **작업 실패**(`failure.code`)로 나옵니다. 아래 "작업 실패 코드"를 보세요.
 
 ### `GET /api/jobs/{jobId}`
 
@@ -90,13 +92,26 @@
 }
 ```
 
-`commit.date`는 수집(INGEST) 단계가 커밋 시각을 읽기 전에는 알 수 없어 `null`일 수 있습니다(Phase 1에서는 항상 `null`). `commit`, `startedAt`, `finishedAt`, `failure`도 값이 없으면 키를 빼지 않고 `null`로 내려옵니다.
+`commit.date`는 수집(INGEST) 단계가 커밋 시각을 읽은 뒤에 채워집니다. 그전(대기 중, 수집 중)에는 `null`입니다. `commit`, `startedAt`, `finishedAt`, `failure`도 값이 없으면 키를 빼지 않고 `null`로 내려옵니다.
 
 실패하면 `status: "FAILED"`, 해당 단계 `status: "FAILED"`, 뒤 단계는 `CANCELLED`가 되고 `failure`가 채워집니다.
 
 ```json
 "failure": { "stage": "SEMANTIC", "code": "OUT_OF_MEMORY", "message": "1,546번째 함수에서 메모리가 부족해 멈췄어요", "resumable": true }
 ```
+
+**작업 실패 코드** (`failure.code`, `message`는 화면에 그대로 보여 줄 수 있는 한국어 문장입니다)
+
+| 코드 | 단계 | `resumable` | 뜻 |
+| --- | --- | --- | --- |
+| `UNSUPPORTED_LANGUAGE` | INGEST | false | Java·Python 소스 파일이 하나도 없다 |
+| `REPO_TOO_LARGE` | INGEST | false | 내려받은 크기가 한도(기본 500MB)를 넘었다 |
+| `CLONE_FAILED` | INGEST | true | 저장소를 내려받지 못했다(네트워크, 존재하지 않는 커밋 등). 잘못된 주소는 재시도 불가 |
+| `CLONE_TIMEOUT` | INGEST | true | 내려받는 데 제한 시간(기본 300초)을 넘었다 |
+| `INTERNAL` | 모든 단계 | true | 예상하지 못한 오류 |
+| `FAKE_FAILURE` | 모든 단계 | true | 개발용. 워커의 `CODEMAP_FAKE_FAIL_STAGE`로 일부러 낸 실패 |
+
+`resumable`이 `false`인 실패는 같은 저장소·같은 커밋으로 다시 시도해도 결과가 같으므로 `POST /api/jobs/{jobId}/retry`가 `409 NOT_RESUMABLE`을 돌려줍니다. 다른 저장소를 분석하게 안내하면 됩니다.
 
 ### `GET /api/jobs/{jobId}/events` (SSE)
 
@@ -120,7 +135,7 @@ data: {"type":"done","jobId":"j_8f2a"}
 
 ### `GET /api/jobs/{jobId}/graph`
 
-분석이 끝나기 전에 요청하면 `409 JOB_NOT_READY`입니다.
+분석이 끝나기 전에 요청하면 `409 JOB_NOT_READY`입니다. 함수가 수천 개면 응답이 수 MB(gson 3,200개 함수 3.5MB)가 되므로 `Accept-Encoding: gzip`을 보내면 gzip으로 응답합니다(약 17배 작음, 브라우저는 자동으로 처리합니다).
 
 ```json
 {
