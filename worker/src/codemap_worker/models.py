@@ -63,7 +63,7 @@ class GraphNode:
     start_line: int
     end_line: int
     degree: int
-    sem: tuple[float, float, float]
+    sem: tuple[float, float, float] | None = None  # 의미 좌표. 의미 지도 전에는 없다
 
 
 @dataclass(frozen=True)

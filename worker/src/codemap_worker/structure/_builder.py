@@ -7,6 +7,16 @@ from codemap_worker.structure.model import CallSite, Definition
 _SIMPLE = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_."
 
 
+_COMMENTS = frozenset({"comment", "line_comment", "block_comment"})
+
+
+def arg_count(arguments) -> int | None:
+    """argument_list 노드의 인자 수 (주석 제외). 노드가 없으면 None."""
+    if arguments is None:
+        return None
+    return sum(1 for c in arguments.named_children if c.type not in _COMMENTS)
+
+
 def simple_dotted(text: str) -> bool:
     """`self`, `obj`, `pkg.util`처럼 점으로 이어진 이름뿐인가 (호출·괄호·대괄호가 없는가)."""
     return bool(text) and text[0] not in "0123456789." and all(c in _SIMPLE for c in text)
@@ -20,15 +30,18 @@ class RawDef:
     start_line: int
     end_line: int
     params: int | None = None
-    # (name, receiver, line, is_constructor)
-    calls: list[tuple[str, str | None, int, bool]] = field(default_factory=list)
+    # (name, receiver, line, is_constructor, arity)
+    calls: list[tuple[str, str | None, int, bool, int | None]] = field(default_factory=list)
+    var_types: dict[str, str] = field(default_factory=dict)  # 변수 이름 → 선언 타입 (Java)
 
 
 # 노드로 만들지 않는 영역(익명 클래스·enum 상수 본문 등)의 호출을 버리는 자리표시자
 OPAQUE = RawDef("<opaque>", "function", (), 0, 0)
 
 
-def assign_ids(path: str, raws: list[RawDef], language: str) -> tuple[list[Definition], list[CallSite]]:
+def assign_ids(
+    path: str, raws: list[RawDef], language: str
+) -> tuple[list[Definition], list[CallSite], list[tuple[str, str, str]]]:
     """소스 순서대로 ID를 정한다. 같은 입력이면 언제나 같은 ID가 나온다.
 
     `path::Class.method`. 같은 ID가 겹치면:
@@ -58,8 +71,9 @@ def assign_ids(path: str, raws: list[RawDef], language: str) -> tuple[list[Defin
         for r, fid in zip(raws, final, strict=True)
     ]
     calls = [
-        CallSite(caller_id=fid, name=n, receiver=recv, line=line, is_constructor=ctor)
+        CallSite(caller_id=fid, name=n, receiver=recv, line=line, is_constructor=ctor, arity=arity)
         for r, fid in zip(raws, final, strict=True)
-        for (n, recv, line, ctor) in r.calls
+        for (n, recv, line, ctor, arity) in r.calls
     ]
-    return definitions, calls
+    var_types = [(fid, var, typ) for r, fid in zip(raws, final, strict=True) for var, typ in r.var_types.items()]
+    return definitions, calls, var_types

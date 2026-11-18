@@ -128,7 +128,7 @@ class PgStore:
                     """,
                     [
                         (job_id, n.id, n.name, n.path, n.module_id, n.kind,
-                         n.start_line, n.end_line, n.degree, *n.sem)
+                         n.start_line, n.end_line, n.degree, *(n.sem or (None, None, None)))
                         for n in nodes
                     ],
                 )

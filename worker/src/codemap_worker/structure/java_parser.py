@@ -3,7 +3,7 @@
 import tree_sitter_java
 from tree_sitter import Language, Node, Parser
 
-from codemap_worker.structure._builder import OPAQUE, RawDef, assign_ids, simple_dotted
+from codemap_worker.structure._builder import OPAQUE, RawDef, arg_count, assign_ids, simple_dotted
 from codemap_worker.structure.model import FileSymbols, ImportRef
 
 _PARSER = Parser(Language(tree_sitter_java.language()))
@@ -24,6 +24,7 @@ def parse_java(path: str, source: bytes) -> FileSymbols:
     raws: list[RawDef] = []
     imports: list[ImportRef] = []
     package: str | None = None
+    fields: dict[tuple[str, ...], dict[str, str]] = {}  # 클래스 → {필드 이름: 선언 타입}
 
     stack: list[tuple[Node, tuple[str, ...], RawDef | None]] = [(tree.root_node, (), None)]
     while stack:
@@ -53,6 +54,12 @@ def parse_java(path: str, source: bytes) -> FileSymbols:
                 )
                 raws.append(raw)
                 child_current = raw
+        elif t == "field_declaration" and current is None and classes:
+            _bind_declaration(node, fields.setdefault(classes, {}))
+        elif t in ("local_variable_declaration", "enhanced_for_statement", "resource") and current is not None:
+            _bind_declaration(node, current.var_types)
+        elif t in ("formal_parameter", "spread_parameter") and current is not None:
+            _bind_parameter(node, current.var_types)
         elif t == "class_body" and current is None and node.parent is not None \
                 and node.parent.type in ("object_creation_expression", "enum_constant"):
             child_current = OPAQUE  # 익명 클래스·enum 상수 본문: 노드를 만들지 않는다
@@ -70,14 +77,17 @@ def parse_java(path: str, source: bytes) -> FileSymbols:
             and node.children[0].type == "this"
         ):
             # this(...)는 같은 클래스의 다른 생성자 호출. super(...)는 부모 클래스를 모르므로 세지 않는다.
-            current.calls.append((classes[-1], None, node.start_point[0] + 1, True))
+            args = next((c for c in node.children if c.type == "argument_list"), None)
+            current.calls.append((classes[-1], None, node.start_point[0] + 1, True, arg_count(args)))
 
         for child in reversed(node.children):
             stack.append((child, child_classes, child_current))
 
-    definitions, calls = assign_ids(path, raws, "java")
+    definitions, calls, var_types = assign_ids(path, raws, "java")
+    var_types += [(f"class:{'.'.join(cls)}", var, typ) for cls, vs in fields.items() for var, typ in vs.items()]
     return FileSymbols(
         path=path, language="java", definitions=tuple(definitions), calls=tuple(calls),
+        var_types=tuple(var_types),
         imports=tuple(sorted(imports, key=lambda i: i.line)), package=package,
         parse_errors=1 if tree.root_node.has_error else 0,
     )
@@ -99,14 +109,54 @@ def _record_invocation(node: Node, current: RawDef) -> None:
     else:
         text = _text(obj)
         receiver = text if simple_dotted(text) else ""
-    current.calls.append((name, receiver, node.start_point[0] + 1, False))
+    current.calls.append((name, receiver, node.start_point[0] + 1, False,
+                          arg_count(node.child_by_field_name("arguments"))))
 
 
 def _record_creation(node: Node, current: RawDef) -> None:
     type_node = node.child_by_field_name("type")
     name = _simple_type_name(type_node)
     if name:
-        current.calls.append((name, None, node.start_point[0] + 1, True))
+        current.calls.append((name, None, node.start_point[0] + 1, True,
+                              arg_count(node.child_by_field_name("arguments"))))
+
+
+def _declared_type(node: Node | None) -> str:
+    """선언된 타입 이름. `List<String>` → List, `a.b.C` → a.b.C, 배열·기본형은 빈 문자열."""
+    if node is None:
+        return ""
+    if node.type == "type_identifier":
+        return _text(node)
+    if node.type == "scoped_type_identifier":
+        return _text(node)
+    if node.type == "generic_type":
+        return _declared_type(next((c for c in node.named_children if c.type != "type_arguments"), None))
+    return ""
+
+
+def _bind_parameter(node: Node, into: dict[str, str]) -> None:
+    typ = _declared_type(node.child_by_field_name("type"))
+    if node.type == "spread_parameter":  # String... rest → 배열이라 메서드 호출 대상이 아니다
+        return
+    name = _text(node.child_by_field_name("name"))
+    if typ and name:
+        into[name] = typ
+
+
+def _bind_declaration(node: Node, into: dict[str, str]) -> None:
+    """`Foo a = ..., b;`, `for (Foo x : xs)`, `try (Foo r = ...)`의 변수 이름 → 타입."""
+    typ = _declared_type(node.child_by_field_name("type"))
+    declarators = node.children_by_field_name("declarator")
+    if node.type in ("enhanced_for_statement", "resource"):
+        names = [(_text(node.child_by_field_name("name")), node.child_by_field_name("value"))]
+    else:
+        names = [(_text(d.child_by_field_name("name")), d.child_by_field_name("value")) for d in declarators]
+    for name, value in names:
+        t = typ
+        if t == "var" and value is not None and value.type == "object_creation_expression":
+            t = _simple_type_name(value.child_by_field_name("type"))  # `var x = new Foo()`의 Foo
+        if t and t != "var" and name:
+            into[name] = t
 
 
 def _simple_type_name(node: Node | None) -> str:

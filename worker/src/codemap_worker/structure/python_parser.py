@@ -3,7 +3,7 @@
 import tree_sitter_python
 from tree_sitter import Language, Node, Parser
 
-from codemap_worker.structure._builder import RawDef, assign_ids, simple_dotted
+from codemap_worker.structure._builder import RawDef, arg_count, assign_ids, simple_dotted
 from codemap_worker.structure.model import FileSymbols, ImportRef
 
 _PARSER = Parser(Language(tree_sitter_python.language()))
@@ -49,7 +49,7 @@ def parse_python(path: str, source: bytes) -> FileSymbols:
         for child in reversed(node.children):
             stack.append((child, child_classes, child_current))
 
-    definitions, calls = assign_ids(path, raws, "python")
+    definitions, calls, _ = assign_ids(path, raws, "python")
     return FileSymbols(
         path=path, language="python", definitions=tuple(definitions), calls=tuple(calls),
         imports=tuple(sorted(imports, key=lambda i: i.line)),
@@ -62,12 +62,13 @@ def _record_call(node: Node, current: RawDef) -> None:
     if fn is None:
         return
     line = node.start_point[0] + 1
+    arity = arg_count(node.child_by_field_name("arguments"))
     if fn.type == "identifier":
-        current.calls.append((_text(fn), None, line, False))
+        current.calls.append((_text(fn), None, line, False, arity))
     elif fn.type == "attribute":
         obj = _text(fn.child_by_field_name("object"))
         current.calls.append((_text(fn.child_by_field_name("attribute")),
-                              obj if simple_dotted(obj) else "", line, False))
+                              obj if simple_dotted(obj) else "", line, False, arity))
     # `f()()`처럼 호출 결과를 또 부르는 식은 안쪽 호출만 센다
 
 

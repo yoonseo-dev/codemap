@@ -27,6 +27,7 @@ class CallSite:
     receiver: str | None
     line: int
     is_constructor: bool = False
+    arity: int | None = None  # 넘긴 인자 수 (Java 오버로드를 고르는 데 쓴다)
 
 
 @dataclass(frozen=True)
@@ -50,4 +51,6 @@ class FileSymbols:
     calls: tuple[CallSite, ...] = ()
     imports: tuple[ImportRef, ...] = ()
     package: str | None = None  # Java package
+    # Java 변수·필드의 선언 타입: (범위, 변수 이름, 타입 이름). 범위는 정의 ID(지역 변수·파라미터) 또는 `class:Outer.Inner`(필드)
+    var_types: tuple[tuple[str, str, str], ...] = ()
     parse_errors: int = 0  # 문법 오류가 있어 일부만 읽은 파일이면 1
