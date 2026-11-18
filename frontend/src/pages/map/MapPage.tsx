@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, type DivergenceType, type EdgeKind, type LayoutMode, type MapLayer, type NodeId } from '../../api'
+import { api, type EdgeKind, type LayoutMode, type MapLayer, type NodeId, type StageName } from '../../api'
 import { DivergenceItem } from '../../components/divergence/DivergenceItem'
 import { MapScene, type CameraCommand, type SceneFocus } from '../../components/graph3d/MapScene'
 import { useLayouts } from '../../components/graph3d/useLayouts'
@@ -11,17 +11,16 @@ import { FocusIcon, MinusIcon, MoveIcon, PlusIcon } from '../../components/ui/ic
 import { Kbd } from '../../components/ui/Kbd'
 import { Segmented } from '../../components/ui/Segmented'
 import { DIVERGENCE_TYPE, num } from '../../lib/labels'
+import { DEFAULT_VIEW, useMapView, type Filter, type Selection } from '../../store/mapView'
 import { NodePanel } from './NodePanel'
 import styles from './MapPage.module.css'
 
-type Filter = 'all' | DivergenceType
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'all', label: '전체' },
   { value: 'duplicate', label: '중복' },
   { value: 'hidden_coupling', label: '숨은 결합' },
   { value: 'mixed_responsibility', label: '책임 혼재' },
 ]
-const DEFAULT_MIN = 60
 const LOW_MIN = 40
 const LAYER_OF: Record<EdgeKind, MapLayer> = { call: 'structure', import: 'structure', similar: 'semantic', cochange: 'history' }
 const LAYERS: { layer: MapLayer; label: string; swatch: string }[] = [
@@ -30,17 +29,18 @@ const LAYERS: { layer: MapLayer; label: string; swatch: string }[] = [
   { layer: 'history', label: '역사: 같이 수정됨', swatch: 'history' },
 ]
 
-type Selection = { kind: 'divergence'; id: string } | { kind: 'node'; id: NodeId } | null
-
 export function MapPage() {
   const { jobId = '' } = useParams()
   const navigate = useNavigate()
-  const [filter, setFilter] = useState<Filter>('all')
-  const [minScore, setMinScore] = useState(DEFAULT_MIN)
-  const [selection, setSelection] = useState<Selection>(null)
-  const [mode, setMode] = useState<LayoutMode>('structure')
-  // 처음에는 단순하게: 구조 선만
-  const [layers, setLayers] = useState<Record<MapLayer, boolean>>({ structure: true, semantic: false, history: false })
+  // 보기 상태(배치 모드, 선 종류, 필터, 선택)는 화면 밖 저장소에 둔다.
+  // 지도 화면은 코드 비교 화면으로 가면 사라지는데, 돌아왔을 때 보던 그대로여야 하기 때문이다.
+  const { filter, minScore, selection, mode, layers } = useMapView((s) => s.views[jobId] ?? DEFAULT_VIEW)
+  const patchView = useMapView((s) => s.patch)
+  const setFilter = (v: Filter) => patchView(jobId, { filter: v })
+  const setMinScore = (v: number) => patchView(jobId, { minScore: v })
+  const setSelection = (v: Selection) => patchView(jobId, { selection: v })
+  const setMode = (v: LayoutMode) => patchView(jobId, { mode: v })
+  const setLayers = (v: Record<MapLayer, boolean>) => patchView(jobId, { layers: v })
   const [hovered, setHovered] = useState<NodeId | null>(null)
   const [command, setCommand] = useState<CameraCommand | null>(null)
   // 이동 도구를 켜 두는 상태. 평소에는 Space를 누르는 동안만 켜진다
@@ -60,6 +60,10 @@ export function MapPage() {
   const job = useQuery({ queryKey: ['job', jobId], queryFn: () => api.getJob(jobId) })
   const graph = useQuery({ queryKey: ['graph', jobId], queryFn: () => api.getGraph(jobId) })
   const layouts = useLayouts(graph.data)
+  // 백엔드는 아직 실제 분석이 아닌 단계의 지표에 fake: 1을 붙인다. 그 값을 화면에 "임시"로 드러낸다.
+  const isTemporary = (stage: StageName) => job.data?.stages.find((s) => s.stage === stage)?.metrics.fake === 1
+  const temporary: Record<MapLayer, boolean> = { structure: false, semantic: isTemporary('SEMANTIC'), history: isTemporary('HISTORY') }
+  const divergenceTemporary = isTemporary('DIVERGENCE')
   const divergences = useQuery({
     queryKey: ['divergences', jobId, filter, minScore],
     queryFn: () => api.listDivergences(jobId, { type: filter === 'all' ? undefined : filter, minScore, limit: 200 }),
@@ -123,7 +127,7 @@ export function MapPage() {
 
   return (
     <div className={styles.screen}>
-      <TopBar repository={job.data?.repository} commit={job.data?.commit} mode={{ value: mode, onChange: setMode }} />
+      <TopBar repository={job.data?.repository} commit={job.data?.commit} mode={{ value: mode, onChange: setMode }} semanticTemporary={temporary.semantic} />
       <div className={styles.body}>
         <main className={styles.canvas} aria-label="코드 지도">
           {graph.data && layouts && (
@@ -154,14 +158,17 @@ export function MapPage() {
                 <h2 className={styles.sectionLabel}>선 종류</h2>
                 {LAYERS.map((l) => (
                   <button key={l.layer} type="button" className={styles.layer} aria-pressed={layers[l.layer]}
-                    onClick={() => setLayers((s) => ({ ...s, [l.layer]: !s[l.layer] }))}>
+                    onClick={() => setLayers({ ...layers, [l.layer]: !layers[l.layer] })}>
                     <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden="true">
                       {l.layer === 'history' ? <path d="M1 7 Q9 -1 17 7" className={styles[l.swatch]} /> : <line x1="0" y1="4" x2="18" y2="4" className={styles[l.swatch]} />}
                     </svg>
-                    <span className={styles.layerLabel}>{l.label}</span>
+                    <span className={styles.layerLabel}>{l.label}{temporary[l.layer] && <span className={styles.temp}>임시</span>}</span>
                     <span className="mono num">{num(counts[l.layer])}</span>
                   </button>
                 ))}
+                {(temporary.semantic || temporary.history) && (
+                  <p className={styles.legendNote}>"임시" 표시가 있는 선은 아직 실제 분석이 아니라 모양만 만든 값이에요. 구조 선만 실제 분석 결과예요.</p>
+                )}
                 <p className={styles.legendNote}>점 크기는 연결 수, 고리는 폴더 대표 함수예요. 점을 누르면 이어진 것만 밝게 보여요.</p>
                 <p className={styles.legendNote}>끌면 돌리기, <Kbd>Space</Kbd>를 누른 채 끌면 이동, 휠은 확대와 축소예요.</p>
               </div>
@@ -207,14 +214,23 @@ export function MapPage() {
                   </div>
                 )}
                 {divergences.data && items.length === 0 && (
-                  <div className={styles.empty}>
-                    <p className={styles.emptyTitle}>어긋남을 찾지 못했어요</p>
-                    <p className={styles.muted}>
-                      세 지도가 대체로 같은 이야기를 하고 있어요. 지금 기준(의심도 {divergences.data.minScore} 이상)을 넘는 함수 쌍이 없습니다.
-                      {minScore > LOW_MIN && ' 기준을 낮추면 약한 신호까지 볼 수 있어요.'}
-                    </p>
-                    {minScore > LOW_MIN && <Button onClick={() => setMinScore(LOW_MIN)}>의심도 {LOW_MIN} 이상으로 다시 보기</Button>}
-                  </div>
+                  divergenceTemporary ? (
+                    <div className={styles.empty}>
+                      <p className={styles.emptyTitle}>어긋남 탐지는 아직 준비 중이에요</p>
+                      <p className={styles.muted}>
+                        지금은 함수와 구조 선(호출·import)만 실제 분석 결과예요. 의미와 이력 분석이 끝나야 세 지도가 어긋나는 곳을 찾을 수 있어요.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className={styles.empty}>
+                      <p className={styles.emptyTitle}>어긋남을 찾지 못했어요</p>
+                      <p className={styles.muted}>
+                        세 지도가 대체로 같은 이야기를 하고 있어요. 지금 기준(의심도 {divergences.data.minScore} 이상)을 넘는 함수 쌍이 없습니다.
+                        {minScore > LOW_MIN && ' 기준을 낮추면 약한 신호까지 볼 수 있어요.'}
+                      </p>
+                      {minScore > LOW_MIN && <Button onClick={() => setMinScore(LOW_MIN)}>의심도 {LOW_MIN} 이상으로 다시 보기</Button>}
+                    </div>
+                  )
                 )}
                 {items.length > 0 && (
                   <ul ref={listRef} className={styles.list}

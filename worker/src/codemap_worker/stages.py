@@ -70,6 +70,10 @@ def _n(x: float) -> int:
     return round(x)
 
 
+# 아직 실제 분석이 아닌 단계의 상세 문구 끝에 붙인다. 화면에 그대로 보이므로 오해하지 않게 한다.
+TEMP = " (임시 값)"
+
+
 def _maybe_fail(ctx: StageContext, stage: StageName, report: Report) -> None:
     """진짜 단계에서도 CODEMAP_FAKE_FAIL_STAGE로 실패 화면을 확인할 수 있게 한다."""
     if ctx.fail_stage == stage:
@@ -229,14 +233,22 @@ STAGE_FUNCTIONS: dict[StageName, StageFn] = {
     StageName.SEMANTIC: _fake_stage_over_real_nodes(
         StageName.SEMANTIC,
         _apply_semantic,
-        lambda done: f"함수 {done:,}개 임베딩 중",
-        lambda m: f"함수 {m['total']:,.0f}개 중 {m['embedded']:,.0f}개 임베딩",
+        lambda done: f"함수 {done:,}개 임베딩 중{TEMP}",
+        lambda m: f"함수 {m['total']:,.0f}개 중 {m['embedded']:,.0f}개 임베딩{TEMP}",
     ),
     StageName.HISTORY: _fake_stage_over_real_nodes(
         StageName.HISTORY,
         _apply_history,
-        lambda done: "함께 수정된 함수 짝을 찾는 중이에요",
-        lambda m: f"함께 수정된 함수 짝 {m['pairs']:,.0f}개를 찾았어요",
+        lambda done: f"함께 수정된 함수 짝을 찾는 중이에요{TEMP}",
+        lambda m: f"함께 수정된 함수 짝 {m['pairs']:,.0f}개를 찾았어요{TEMP}",
+    ),
+    # 어긋남 탐지는 Phase 5 전까지 완전히 가짜다. 숫자(41)도 항상 같다.
+    StageName.DIVERGENCE: _fake(
+        StageName.DIVERGENCE,
+        lambda r: (
+            f"어긋남 후보 {_n(41 * r)}개를 골랐어요{TEMP}",
+            {"candidates": _n(41 * r), "fake": 1},
+        ),
     ),
 }
 
