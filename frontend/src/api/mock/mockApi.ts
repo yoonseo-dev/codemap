@@ -20,6 +20,11 @@ const DONE_DETAIL: Record<StageName, string> = {
   HISTORY: '같이 수정된 함수 쌍 862개',
   DIVERGENCE: '어긋남 9개',
 }
+// mock 모드는 전부 가짜 데이터다. 실제 백엔드처럼 의미·역사·어긋남 단계에 fake: 1과 "(임시 값)"을 붙인다.
+const TEMPORARY: StageName[] = ['SEMANTIC', 'HISTORY', 'DIVERGENCE']
+const markTemp = (s: StageName, detail: string) => (TEMPORARY.includes(s) ? `${detail} (임시 값)` : detail)
+const tempMetrics = (s: StageName): Record<string, number> => (TEMPORARY.includes(s) ? { fake: 1 } : {})
+
 const runningDetail = (s: StageName, p: number) => {
   switch (s) {
     case 'INGEST': return `커밋 ${Math.round(20 * p).toLocaleString()}개 받는 중`
@@ -49,7 +54,7 @@ const commit = { sha: 'a3f9c1e', branch: 'main', date: '2026-10-28T09:12:00Z' }
 function doneJob(jobId: string, repo: Repository): Job {
   return {
     jobId, repository: repo, commit, status: 'DONE', stage: 'DIVERGENCE',
-    stages: STAGES.map((stage) => ({ stage, status: 'DONE', percent: 100, detail: DONE_DETAIL[stage], metrics: {} })),
+    stages: STAGES.map((stage) => ({ stage, status: 'DONE', percent: 100, detail: markTemp(stage, DONE_DETAIL[stage]), metrics: tempMetrics(stage) })),
     startedAt: '2026-10-28T09:20:00Z', finishedAt: '2026-10-28T09:28:00Z', failure: null,
   }
 }
@@ -112,7 +117,8 @@ function run(rec: JobRecord) {
       emit(rec, { type: 'failed', failure: job.failure })
       return
     }
-    if (s.percent >= 100) { s.status = 'DONE'; s.detail = DONE_DETAIL[s.stage] } else s.detail = runningDetail(s.stage, s.percent)
+    s.metrics = tempMetrics(s.stage)
+    if (s.percent >= 100) { s.status = 'DONE'; s.detail = markTemp(s.stage, DONE_DETAIL[s.stage]) } else s.detail = markTemp(s.stage, runningDetail(s.stage, s.percent))
     emit(rec, { type: 'stage', stage: { ...s } })
   }, tick)
 }
