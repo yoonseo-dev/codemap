@@ -90,8 +90,12 @@ def test_real_stages_report_real_numbers(repo, tmp_path):
 
     # 가짜 단계는 임시 값이라는 표시(fake)를 달고, 숫자는 실제 노드 수를 쓴다
     semantic = done[StageName.SEMANTIC]
-    assert semantic[4]["fake"] == 1 and semantic[3] == "함수 9개 중 9개 임베딩"
+    assert semantic[4]["fake"] == 1 and semantic[3] == "함수 9개 중 9개 임베딩 (임시 값)"
     assert done[StageName.HISTORY][4]["fake"] == 1
+    assert done[StageName.HISTORY][3].endswith("(임시 값)")
+    assert done[StageName.DIVERGENCE][4]["fake"] == 1 and done[StageName.DIVERGENCE][3].endswith("(임시 값)")
+    # 진짜 단계에는 임시 표시가 없다
+    assert "임시" not in done[StageName.INGEST][3] and "임시" not in structure[3]
 
 
 def test_progress_never_goes_backwards_within_a_stage(repo, tmp_path):

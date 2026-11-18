@@ -12,11 +12,13 @@ interface Props {
   commit?: CommitRef | null
   /** 지도 화면에서만 넘긴다 */
   mode?: { value: LayoutMode; onChange: (m: LayoutMode) => void }
+  /** 의미 지도가 아직 실제 분석이 아니면(백엔드가 fake로 표시) 라벨에 임시라고 적는다 */
+  semanticTemporary?: boolean
   onSearch?: () => void
   actions?: ReactNode
 }
 
-export function TopBar({ repository, commit, mode, onSearch, actions }: Props) {
+export function TopBar({ repository, commit, mode, semanticTemporary, onSearch, actions }: Props) {
   return (
     <header className={styles.bar}>
       <div className={styles.left}>
@@ -32,7 +34,7 @@ export function TopBar({ repository, commit, mode, onSearch, actions }: Props) {
       <div className={styles.center}>
         {mode && (
           <Segmented label="보기" value={mode.value} onChange={mode.onChange}
-            options={[{ value: 'structure', label: '폴더별 보기' }, { value: 'semantic', label: '하는 일별 보기' }]} />
+            options={[{ value: 'structure', label: '폴더별 보기' }, { value: 'semantic', label: semanticTemporary ? '하는 일별 보기 (임시)' : '하는 일별 보기' }]} />
         )}
       </div>
       <div className={styles.right}>
