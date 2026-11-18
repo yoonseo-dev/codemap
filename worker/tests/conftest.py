@@ -13,6 +13,9 @@ class FakeStore:
     calls: list[tuple] = field(default_factory=list)
     stages: dict[StageName, tuple] = field(default_factory=dict)  # stage → (status, percent)
     graph: tuple | None = None
+    nodes: list = field(default_factory=list)
+    edges: list = field(default_factory=list)
+    positions: dict = field(default_factory=dict)
     job_status: str = "QUEUED"
     failure: Failure | None = None
     commit_info: tuple | None = None
@@ -36,8 +39,25 @@ class FakeStore:
         self.commit_info = (branch, commit_date)
 
     def save_graph(self, job_id, nodes, edges):
+        """기존 노드·엣지를 모두 교체한다 (PgStore와 같다)."""
         self.calls.append(("graph",))
-        self.graph = (list(nodes), list(edges))
+        self.nodes = list(nodes)
+        self.edges = list(edges)
+        self.positions = {}
+        self.graph = (self.nodes, self.edges)
+
+    def replace_edges(self, job_id, kinds, edges):
+        self.calls.append(("replace_edges", tuple(kinds)))
+        self.edges = [e for e in self.edges if e.kind not in kinds] + list(edges)
+        self.graph = (self.nodes, self.edges)
+
+    def set_positions(self, job_id, positions):
+        self.calls.append(("set_positions",))
+        self.positions = dict(positions)
+
+    def load_graph(self, job_id):
+        self.calls.append(("load_graph",))
+        return list(self.nodes), [e for e in self.edges if e.kind in ("call", "import")]
 
     def mark_job_done(self, job_id):
         self.calls.append(("done",))
@@ -55,9 +75,11 @@ class FakeStore:
 @dataclass
 class FakeEvents:
     items: list[tuple] = field(default_factory=list)
+    stage_details: list[tuple] = field(default_factory=list)  # (stage, status, percent, detail, metrics)
 
     def stage(self, job_id, stage, status, percent, detail, metrics):
         self.items.append(("stage", stage, status, percent))
+        self.stage_details.append((stage, status, percent, detail, dict(metrics)))
 
     def done(self, job_id):
         self.items.append(("done",))

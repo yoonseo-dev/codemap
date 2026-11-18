@@ -1,156 +1,105 @@
-"""Phase 1 가짜 그래프. 시드가 고정이라 실행할 때마다 같은 결과가 나온다.
+"""가짜 의미·역사 결과. 실제 노드 위에 만들고, 같은 입력이면 언제나 같은 결과가 나온다.
 
-모양은 프론트 mock(`frontend/src/api/mock/fixtures.ts`)과 비슷하다: 모듈 6개, 함수 약 200개,
-엣지 4종류(call·import·similar·cochange). Phase 2부터 실제 분석 결과로 바뀐다.
+Phase 4(의미 지도), Phase 3(역사 지도)에서 진짜 분석으로 바뀌기 전까지 지도 화면이 동작하게 하는 자리 채움이다.
+- 의미 좌표: 모듈마다 구(球) 위에 중심을 하나씩 두고, 그 주변에 노드를 흩뿌린다.
+- similar 엣지: 같은 모듈 안 위주 + 모듈을 가로지르는 몇 쌍(중복 구현처럼 보이는 것).
+- cochange 엣지: 호출 관계가 있는 쌍의 일부 + 호출 관계가 전혀 없는 쌍 몇 개(숨은 결합처럼 보이는 것).
+엣지 수는 노드 수에 비례한다(노드가 수천 개여도 폭발하지 않는다).
 """
 
+import math
 import random
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from codemap_worker.models import GraphEdge, GraphNode
 
-SEED = 20261116
-
-# (모듈 id, 의미 지도 중심, 파일, 이름을 정해 둔 함수들 — 첫 번째가 폴더 대표 함수)
-_MODULES: list[tuple[str, tuple[float, float, float], list[str], list[str]]] = [
-    ("billing/", (-2.5, -0.4, 0.6), ["invoice.py", "tax.py", "refund.py", "report.py"], [
-        "billing/invoice.py::InvoiceService.create", "billing/invoice.py::calc_total",
-        "billing/tax.py::rate_for", "billing/report.py::to_rows",
-        "billing/invoice.py::send_receipt", "billing/refund.py::refund_amount"]),
-    ("orders/", (2.4, 0.5, -0.4), ["service.py", "cart.py", "controller.py"], [
-        "orders/controller.py::OrderController.place", "orders/cart.py::sum_items",
-        "orders/service.py::place_order", "orders/service.py::send_order_mail",
-        "orders/service.py::OrderService.reserve_stock"]),
-    ("auth/", (-0.4, -2.1, -1.7), ["session.py", "signup.py", "profile.py"], [
-        "auth/session.py::SessionStore.get", "auth/session.py::refresh",
-        "auth/signup.py::validate_email", "auth/profile.py::normalize_phone",
-        "auth/session.py::require_login"]),
-    ("api/", (0.1, 0.2, 1.3), ["router.py", "validators.py", "routes.py", "export.py"], [
-        "api/router.py::dispatch", "api/validators.py::check_email",
-        "api/routes.py::export_csv", "api/export.py::sum_rows"]),
-    ("notify/", (-2.1, 1.8, -0.6), ["mailer.py", "sms.py", "sender.py"], [
-        "notify/mailer.py::Mailer.deliver", "notify/mailer.py::render_template",
-        "notify/sms.py::format_phone", "notify/mailer.py::send",
-        "notify/sms.py::send_sms", "notify/mailer.py::send_bulk"]),
-    ("catalog/", (2.5, -2.0, 0.8), ["price.py", "product.py"], [
-        "catalog/price.py::PriceRule.apply", "catalog/price.py::apply_discount",
-        "catalog/price.py::line_total"]),
-]
-
-_FILLER = ["load", "save", "parse", "build", "to_dict", "from_row", "validate", "normalize",
-           "format", "fetch", "update", "remove", "merge", "split", "lookup", "resolve"]
-
-# 눈에 띄게 만든 어긋남 후보: 하는 일은 같은데 서로 다른 모듈에 있는 함수들
-_DUPLICATES = [
-    ("billing/invoice.py::calc_total", "orders/cart.py::sum_items", 0.94),
-    ("orders/cart.py::sum_items", "api/export.py::sum_rows", 0.91),
-    ("billing/invoice.py::send_receipt", "orders/service.py::send_order_mail", 0.89),
-    ("auth/signup.py::validate_email", "api/validators.py::check_email", 0.93),
-    ("auth/profile.py::normalize_phone", "notify/sms.py::format_phone", 0.88),
-]
-# 호출 관계는 없는데 함께 수정되는 함수들 (숨은 결합)
-_HIDDEN_COUPLING = [
-    ("billing/tax.py::rate_for", "catalog/price.py::apply_discount", 0.82),
-    ("orders/service.py::OrderService.reserve_stock", "notify/mailer.py::send_bulk", 0.71),
-    ("auth/session.py::refresh", "api/router.py::dispatch", 0.66),
-]
-
+_SPHERE_RADIUS = 3.0
 _BASE_DATE = datetime(2025, 11, 1, tzinfo=UTC)
+_STRUCTURE = ("call", "import")
+
+Vec3 = tuple[float, float, float]
 
 
-def _name(node_id: str) -> str:
-    return node_id.split("::")[1]
+def fake_semantic(nodes: list[GraphNode], seed: str) -> tuple[dict[str, Vec3], list[GraphEdge]]:
+    """(노드 ID → 가짜 의미 좌표, 가짜 similar 엣지)."""
+    by_module: dict[str, list[GraphNode]] = defaultdict(list)
+    for n in sorted(nodes, key=lambda n: n.id):
+        by_module[n.module_id].append(n)
+    modules = sorted(by_module)
 
+    # 구 위에 모듈 중심을 골고루 놓는다 (황금각)
+    centers: dict[str, Vec3] = {}
+    for i, m in enumerate(modules):
+        y = 1 - 2 * (i + 0.5) / len(modules)
+        r = math.sqrt(max(0.0, 1 - y * y))
+        theta = i * 2.399963229728653
+        centers[m] = (_SPHERE_RADIUS * r * math.cos(theta), _SPHERE_RADIUS * y, _SPHERE_RADIUS * r * math.sin(theta))
 
-def make_fake_graph(seed: int = SEED) -> tuple[list[GraphNode], list[GraphEdge]]:
-    rnd = random.Random(seed)
-
-    raw: list[tuple[str, str, tuple[float, float, float], int]] = []  # (id, module, center, idx)
-    for module_id, center, files, named in _MODULES:
-        ids = list(named)
-        for i in range(rnd.randint(26, 34)):
-            fn = _FILLER[(i * 7 + len(module_id)) % len(_FILLER)]
-            ids.append(f"{module_id}{files[i % len(files)]}::{fn}_{i}")
-        raw.extend((node_id, module_id, center, idx) for idx, node_id in enumerate(ids))
-
-    by_module: dict[str, list[str]] = {}
-    for node_id, module_id, _, _ in raw:
-        by_module.setdefault(module_id, []).append(node_id)
-    module_ids = list(by_module)
-
-    def structure_edges() -> list[GraphEdge]:
-        seen: set[tuple[str, str, str]] = set()
-        out: list[GraphEdge] = []
-
-        def add(source: str, target: str, kind: str, weight: float) -> None:
-            if source == target or (source, target, kind) in seen:
-                return
-            seen.add((source, target, kind))
-            out.append(GraphEdge(source, target, kind, weight))
-
-        for node_id, module_id, _, idx in raw:
-            for _ in range(rnd.randint(1, 3)):
-                # 대부분은 같은 모듈 안에서 부르고, 가끔 다른 모듈을 부른다
-                pool = by_module[module_id] if rnd.random() < 0.8 else by_module[rnd.choice(module_ids)]
-                # 대표 함수(앞쪽)가 더 많이 불리도록 앞쪽에 가중치
-                target = pool[min(int(rnd.random() ** 2 * len(pool)), len(pool) - 1)]
-                add(node_id, target, "call", float(rnd.randint(1, 5)))
-        # import: 모듈 대표 함수끼리 서로 가져온다
-        for a in module_ids:
-            for b in rnd.sample([m for m in module_ids if m != a], 2):
-                add(by_module[a][0], by_module[b][0], "import", 1.0)
-        return out
-
-    edges = structure_edges()
-    call_pairs = {(e.source, e.target) for e in edges} | {(e.target, e.source) for e in edges}
-
-    # similar: 모듈 안의 비슷한 함수 + 모듈을 가로지르는 중복 구현
-    for node_id, module_id, _, _ in raw:
-        if rnd.random() < 0.12:
-            other = rnd.choice(by_module[module_id])
-            if other != node_id:
-                edges.append(GraphEdge(node_id, other, "similar", round(rnd.uniform(0.70, 0.86), 2)))
-    edges.extend(GraphEdge(a, b, "similar", w) for a, b, w in _DUPLICATES)
-
-    # cochange: 같이 부르는 함수는 같이 수정되기 쉽다 + 호출 관계 없는 숨은 결합
-    for e in [e for e in edges if e.kind == "call"]:
-        if rnd.random() < 0.15:
-            since = _BASE_DATE + timedelta(days=rnd.randint(0, 330))
-            edges.append(GraphEdge(e.source, e.target, "cochange", round(rnd.uniform(0.5, 0.9), 2), since))
-    for a, b, w in _HIDDEN_COUPLING:
-        assert (a, b) not in call_pairs, "숨은 결합 견본은 호출 관계가 없어야 한다"
-        since = _BASE_DATE + timedelta(days=rnd.randint(0, 120))
-        edges.append(GraphEdge(a, b, "cochange", w, since))
-
-    degree: dict[str, int] = {node_id: 0 for node_id, *_ in raw}
-    for e in edges:
-        if e.kind in ("call", "import"):
-            degree[e.source] += 1
-            degree[e.target] += 1
-
-    def gauss(spread: float) -> float:
-        return rnd.gauss(0, spread)
-
-    nodes: list[GraphNode] = []
-    for node_id, module_id, center, idx in raw:
-        start = rnd.randint(10, 210)
-        spread = 0.15 if idx == 0 else 0.7
-        name = _name(node_id)
-        nodes.append(
-            GraphNode(
-                id=node_id,
-                name=name,
-                path=node_id.split("::")[0],
-                module_id=module_id,
-                kind="method" if "." in name else "function",
-                start_line=start,
-                end_line=start + rnd.randint(6, 45),
-                degree=degree[node_id],
-                sem=(
-                    round(center[0] + gauss(spread), 3),
-                    round(center[1] + gauss(spread), 3),
-                    round(center[2] + gauss(spread), 3),
-                ),
+    positions: dict[str, Vec3] = {}
+    for m, members in by_module.items():
+        cx, cy, cz = centers[m]
+        for n in members:
+            rnd = random.Random(f"{seed}|pos|{n.id}")  # 노드마다 따로 시드해, 다른 노드가 바뀌어도 이 노드는 그대로다
+            spread = max(0.15, 0.8 / (1 + n.degree / 4))  # 연결이 많은 함수일수록 모듈 중심에 가깝다
+            positions[n.id] = (
+                round(cx + rnd.gauss(0, spread), 3),
+                round(cy + rnd.gauss(0, spread), 3),
+                round(cz + rnd.gauss(0, spread), 3),
             )
-        )
-    return nodes, edges
+
+    seen: set[tuple[str, str]] = set()
+    edges: list[GraphEdge] = []
+
+    def add(a: str, b: str, weight: float) -> None:
+        key = (a, b) if a < b else (b, a)
+        if a != b and key not in seen:
+            seen.add(key)
+            edges.append(GraphEdge(key[0], key[1], "similar", round(weight, 2)))
+
+    for m in modules:
+        members = by_module[m]
+        if len(members) < 2:
+            continue
+        rnd = random.Random(f"{seed}|sim|{m}")
+        for _ in range(max(1, round(0.12 * len(members)))):
+            a, b = rnd.sample(members, 2)
+            add(a.id, b.id, rnd.uniform(0.70, 0.88))
+
+    if len(modules) >= 2:
+        rnd = random.Random(f"{seed}|dup")
+        for _ in range(max(3, round(0.01 * len(nodes)))):
+            m1, m2 = rnd.sample(modules, 2)
+            add(rnd.choice(by_module[m1]).id, rnd.choice(by_module[m2]).id, rnd.uniform(0.88, 0.97))
+
+    edges.sort(key=lambda e: (e.source, e.target))
+    return positions, edges
+
+
+def fake_history(nodes: list[GraphNode], edges: list[GraphEdge], seed: str) -> list[GraphEdge]:
+    """가짜 cochange 엣지. `edges`는 실제 구조 엣지(call·import)다."""
+    structure = sorted((e for e in edges if e.kind in _STRUCTURE), key=lambda e: (e.source, e.target, e.kind))
+    connected = {(e.source, e.target) for e in structure} | {(e.target, e.source) for e in structure}
+    out: dict[tuple[str, str], GraphEdge] = {}
+
+    def since(rnd: random.Random) -> datetime:
+        return _BASE_DATE + timedelta(days=rnd.randint(0, 330))
+
+    rnd = random.Random(f"{seed}|co-struct")
+    for e in structure:
+        if e.kind == "call" and rnd.random() < 0.15:  # 같이 부르는 함수는 같이 수정되기 쉽다
+            key = (e.source, e.target) if e.source < e.target else (e.target, e.source)
+            out.setdefault(key, GraphEdge(key[0], key[1], "cochange", round(rnd.uniform(0.5, 0.9), 2), since(rnd)))
+
+    ordered = sorted(nodes, key=lambda n: n.id)
+    if len(ordered) >= 2:
+        rnd = random.Random(f"{seed}|co-hidden")
+        for _ in range(max(3, round(0.01 * len(ordered)))):
+            for _attempt in range(20):  # 호출·import 관계가 없는 다른 모듈의 두 함수
+                a, b = rnd.sample(ordered, 2)
+                key = (a.id, b.id) if a.id < b.id else (b.id, a.id)
+                if a.module_id != b.module_id and (a.id, b.id) not in connected and key not in out:
+                    out[key] = GraphEdge(key[0], key[1], "cochange", round(rnd.uniform(0.6, 0.9), 2), since(rnd))
+                    break
+
+    return sorted(out.values(), key=lambda e: (e.source, e.target))

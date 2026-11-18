@@ -5,7 +5,7 @@
 진행률 쓰기는 pipeline이 0.5초에 한 번 이하로 줄여서 부르므로 연결 비용은 무시할 만하다.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Protocol
 
@@ -42,6 +42,16 @@ class Store(Protocol):
     def save_graph(
         self, job_id: int, nodes: Sequence[GraphNode], edges: Sequence[GraphEdge]
     ) -> None: ...
+
+    def replace_edges(
+        self, job_id: int, kinds: Sequence[str], edges: Sequence[GraphEdge]
+    ) -> None: ...
+
+    def set_positions(
+        self, job_id: int, positions: Mapping[str, tuple[float, float, float]]
+    ) -> None: ...
+
+    def load_graph(self, job_id: int) -> tuple[list[GraphNode], list[GraphEdge]]: ...
 
     def mark_job_done(self, job_id: int) -> None: ...
 
@@ -139,6 +149,51 @@ class PgStore:
                     """,
                     [(job_id, e.source, e.target, e.kind, e.weight, e.since) for e in edges],
                 )
+
+    def replace_edges(self, job_id, kinds, edges) -> None:
+        """주어진 종류의 엣지만 지우고 다시 넣는다 (다른 종류는 그대로). 두 번 해도 같은 결과."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM code_edge WHERE job_id = %s AND kind = ANY(%s)", (job_id, list(kinds)))
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO code_edge (job_id, source, target, kind, weight, since)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    [(job_id, e.source, e.target, e.kind, e.weight, e.since) for e in edges],
+                )
+
+    def set_positions(self, job_id, positions) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.executemany(
+                "UPDATE code_node SET sem_x = %s, sem_y = %s, sem_z = %s WHERE job_id = %s AND node_id = %s",
+                [(x, y, z, job_id, node_id) for node_id, (x, y, z) in positions.items()],
+            )
+
+    def load_graph(self, job_id):
+        """저장된 노드와 구조 엣지(call·import). 재시도로 뒤 단계만 다시 돌릴 때 앞 단계 결과를 읽는다."""
+        with self._connect() as conn:
+            node_rows = conn.execute(
+                """
+                SELECT node_id, name, path, module_id, kind, start_line, end_line, degree, sem_x, sem_y, sem_z
+                  FROM code_node WHERE job_id = %s ORDER BY node_id
+                """,
+                (job_id,),
+            ).fetchall()
+            edge_rows = conn.execute(
+                """
+                SELECT source, target, kind, weight, since FROM code_edge
+                 WHERE job_id = %s AND kind IN ('call', 'import') ORDER BY kind, source, target
+                """,
+                (job_id,),
+            ).fetchall()
+        nodes = [
+            GraphNode(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7],
+                      (r[8], r[9], r[10]) if r[8] is not None else None)
+            for r in node_rows
+        ]
+        edges = [GraphEdge(r[0], r[1], r[2], r[3], r[4]) for r in edge_rows]
+        return nodes, edges
 
     def mark_job_done(self, job_id: int) -> None:
         with self._connect() as conn:

@@ -36,11 +36,8 @@ def test_success_emits_stages_in_order_then_done_and_saves_graph(store, events):
     assert started == list(STAGES)
     assert store.job_status == "DONE"
     assert all(v == (StageStatus.DONE, 100) for v in store.stages.values())
-    nodes, edges = store.graph
-    assert len(nodes) > 100 and edges
-    # 그래프를 저장한 뒤에 DONE으로 바꾼다
-    kinds = [c[0] for c in store.calls]
-    assert kinds.index("graph") < kinds.index("done")
+    # 그래프는 진짜 STRUCTURE 단계가 저장한다(test_pipeline_real.py). 가짜 단계만으로는 저장하지 않는다.
+    assert store.graph is None
 
 
 def test_percent_never_goes_backwards_within_a_stage(store, events):
