@@ -6,14 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GitHub 저장소를 입력받아 코드 관계를 **구조(호출·import) / 의미(코드 임베딩) / 역사(함께 수정된 이력)** 세 지도로 만들고, 세 지도가 어긋나는 지점(중복 구현, 숨은 결합, 책임 혼재)을 3D로 보여주는 서비스. 상세 기획은 `docs/PROJECT_PLAN.md`, Phase별 일정·완료 기준은 `DEVELOPMENT_PLAN.md`. 문서는 한국어로 작성되어 있다.
 
-현재는 Phase 1(가짜 데이터로 end-to-end 파이프라인 골격) 단계이며, 대부분의 모듈은 빈 스켈레톤이다. 새 작업 전에 `DEVELOPMENT_PLAN.md`에서 해당 Phase의 범위를 확인할 것.
+현재는 Phase 2까지 끝났다. 수집(INGEST)과 구조 지도(STRUCTURE)는 진짜 분석이고, 의미·역사·어긋남 단계는 아직 가짜(실제 노드 위에 얹은 시드 고정 값, 단계 metrics에 `fake: 1`)다. 새 작업 전에 `DEVELOPMENT_PLAN.md`에서 해당 Phase의 범위를 확인할 것.
 
 ## Architecture
 
 모노레포, 세 애플리케이션이 인프라(Postgres/Redis/RabbitMQ)로 연결된다.
 
 - `backend/` — Spring Boot 4.1 (Java 21, Gradle) API 서버, 포트 8081. 저장소 등록·분석 작업 관리·결과 조회. 스키마는 **Flyway**(`src/main/resources/db/migration`)가 관리하고 `ddl-auto=validate`이므로, 엔티티를 바꾸면 반드시 마이그레이션을 추가해야 한다. 패키지 루트는 `com.codemap.api`.
-- `worker/` — Python 3.11 분석 워커(`codemap_worker`). RabbitMQ `analysis.jobs` 큐(durable, prefetch=1)에서 작업을 받아 `handle_job`에서 파이프라인 실행. 단계별 서브패키지: `ingest → structure → semantic → history → divergence`, 그리고 `validation`.
+- `worker/` — Python 3.11 분석 워커(`codemap_worker`). RabbitMQ `analysis.jobs` 큐(durable, prefetch=1)에서 작업을 받아 `pipeline.run_job`이 5단계를 실행한다(단계 함수는 `stages.py`). 단계별 서브패키지: `ingest`(clone·커밋 정보·파일 수집), `structure`(파서·해석·모듈·구조 거리), `semantic`·`history`·`divergence`(아직 빈 폴더), 그리고 `validation`. 분석 실패는 DB에 `FAILED`로 기록하고 ack, 인프라 오류만 큐 재시도(2회 후 DLQ).
 - `frontend/` — React 19 + TypeScript + Vite, 3D는 react-three-fiber, 상태는 zustand, 서버 상태는 react-query, 코드 뷰어는 Monaco.
 - 흐름: API가 작업을 RabbitMQ에 발행 → 워커가 처리하며 Redis Stream `job:{id}:events`로 진행률 발행 → API가 `XRANGE` 폴링으로 읽어 SSE로 브라우저에 전달. 결과(노드·엣지·임베딩 벡터)는 PostgreSQL + pgvector에 저장.
 - 설계 원칙: 워커의 각 분석 단계는 "입력 → 순수 함수 → 결과 객체"로 만들고 DB 저장은 분리해, DB 없이 샘플 저장소 픽스처로 단위 테스트한다.
@@ -42,12 +42,14 @@ ruff check .
 pytest -q
 pytest tests/test_smoke.py::test_name -q                      # 단일 테스트
 python -m codemap_worker.main                                 # 워커 실행
+python -m codemap_worker.structure <폴더>                     # DB·큐 없이 폴더를 구조 분석(해석 성공률, 해석 못 한 호출 목록)
 
 # frontend (frontend/)
 npm ci
 npm run dev
 npm run lint                 # oxlint
 npm run build                # tsc -b && vite build
+VITE_API=hybrid npm run dev  # 실제 백엔드(analyses·jobs·events·retry·graph) + 나머지는 mock. 값이 없으면 전부 mock, http면 전부 실제
 ```
 
 ## Conventions
